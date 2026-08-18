@@ -13,9 +13,12 @@ security configuration and presents the results in a clear, structured form.
 - Reject unsupported schemes and URLs containing embedded credentials.
 - Check whether an HTTP endpoint redirects safely to HTTPS.
 - Limit redirect chains and detect redirect loops.
-- Handle request timeouts and connection errors without a traceback.
-- Produce structured security findings.
-- Display results in the terminal.
+- Inspect TLS certificate identity, validity, issuer, and expiration.
+- Report certificates that are expiring, expired, mismatched, or untrusted.
+- Inspect HSTS, CSP, MIME-sniffing, referrer, permissions, and framing headers.
+- Handle controlled network, TLS, and parsing errors without a traceback.
+- Produce structured findings with evidence and remediation guidance.
+- Display separate check results and a severity summary in the terminal.
 - Export versioned UTF-8 JSON reports.
 - Protect existing report files from accidental overwrite.
 
@@ -105,9 +108,9 @@ The output file includes:
 - Report schema and LotusWatch versions
 - Original and normalized target
 - UTC scan timestamp
-- Redirect check details and HTTP status codes
+- Redirect, TLS certificate, and HTTP security-header check details
 - Summary counters
-- Structured findings
+- Structured findings with evidence, severity, and remediation guidance
 
 LotusWatch refuses to overwrite an existing report. Choose a new output path
 or move the previous report before running the command again.
@@ -127,6 +130,72 @@ synthetic example using the reserved `demo.example` domain.
 A redirect `PASS` does not prove that the complete website is healthy or free
 of vulnerabilities. It only describes the redirect behavior tested by the
 current check.
+
+## Interpreting TLS Results
+
+- `PASS` means the certificate was verified for the requested hostname and its
+  validity data could be inspected.
+- `WARNING` means the verified certificate is approaching expiration.
+- `FAIL` means certificate verification failed, such as for an expired,
+  mismatched, or otherwise untrusted certificate.
+- `ERROR` means the TLS check could not complete because of an operational
+  problem such as DNS, timeout, connection, handshake, or parsing failure.
+
+TLS findings cover certificate expiration and verification only. LotusWatch
+does not currently grade cipher suites, protocol configuration, certificate
+transparency, revocation status, or the complete server-side TLS setup.
+
+TLS finding categories mean:
+
+- Expiration findings indicate that renewal is approaching or overdue.
+- Hostname mismatch means the certificate identity does not match the hostname
+  requested by LotusWatch.
+- Generic verification failure means the local trust check failed but the
+  available diagnostic does not support a more specific conclusion.
+
+An operational TLS `ERROR` is not automatically treated as a certificate
+vulnerability because DNS, connectivity, or local environment problems can
+prevent the check from completing.
+
+## Interpreting HTTP Security Header Results
+
+LotusWatch observes these response headers on the final HTTPS endpoint:
+
+- `Strict-Transport-Security`
+- `Content-Security-Policy`
+- `X-Content-Type-Options`
+- `Referrer-Policy`
+- `Permissions-Policy`
+- `X-Frame-Options`
+
+`PASS` means the selected controls satisfy the current limited rules.
+`WARNING` means one or more controls are missing, malformed, or weaker than the
+current threshold. `ERROR` means the header request could not complete.
+
+Missing headers weaken browser defense in depth but do not prove that the
+website is exploitable. A policy can also be present and still be ineffective
+or inappropriate for the application. LotusWatch does not perform full CSP
+analysis, policy bypass testing, or application-specific policy generation.
+
+Security-header finding categories mean:
+
+- HSTS findings indicate a missing, malformed, or short-lived HTTPS retention
+  policy.
+- CSP findings indicate that no Content Security Policy header was observed;
+  LotusWatch does not judge the complete strength of a present policy.
+- MIME-sniffing findings indicate that `nosniff` protection was not observed.
+- Referrer and Permissions Policy findings indicate that the browser behavior
+  is not explicitly constrained by those selected headers.
+- Framing findings indicate that neither CSP `frame-ancestors` nor
+  `X-Frame-Options` was observed; this is not proof of a working clickjacking
+  attack.
+
+## Scan Summary
+
+Each scan records the redirect, TLS, and header check results. The terminal
+summary distinguishes recorded checks from checks that completed far enough to
+produce a conclusion, then reports finding counts by severity. LotusWatch does
+not calculate an overall risk score.
 
 ## Development
 
@@ -176,7 +245,9 @@ lotuswatch/
 |-- src/
 |   `-- lotuswatch/
 |       |-- checks/
-|       |   `-- redirects.py
+|       |   |-- headers.py
+|       |   |-- redirects.py
+|       |   `-- tls.py
 |       |-- models/
 |       |   |-- finding.py
 |       |   `-- report.py
@@ -199,8 +270,9 @@ lotuswatch/
 
 ## Scope and Authorized Use
 
-The current version makes a small number of ordinary HTTP requests to inspect
-redirect behavior. Use it at a low frequency and only against public endpoints
+The current version makes a small number of ordinary HTTP requests and one TLS
+connection to inspect redirect behavior, the certificate, and selected
+response headers. Use it at a low frequency and only against public endpoints
 that you are permitted to access.
 
 Do not use LotusWatch to bypass authentication, evade protective controls,
@@ -215,10 +287,15 @@ the detailed technical scope.
 
 - Results may contain false positives or false negatives.
 - Redirect success does not prove endpoint availability or application safety.
-- TLS certificates and HTTP security headers are not inspected yet.
+- TLS inspection does not grade protocols, cipher suites, revocation, or all
+  certificate-chain deployment details.
+- Security-header inspection does not evaluate full policy correctness or
+  prove that a missing control is exploitable.
+- LotusWatch inspects one selected HTTPS response and does not crawl the site.
 - Domain ownership is not verified automatically.
-- JSON reports can contain target URLs and redirect destinations. Review them
-  before sharing or committing them.
+- JSON reports can contain target URLs, redirect destinations, certificate
+  metadata, selected header values, diagnostics, and finding evidence. Review
+  them before sharing or committing them.
 
 ## Roadmap
 
@@ -228,8 +305,9 @@ the detailed technical scope.
 - [x] HTTP-to-HTTPS redirect detection
 - [x] Redirect-loop and timeout handling
 - [x] JSON report generation
-- [ ] TLS certificate inspection
-- [ ] HTTP security-header checks
+- [x] TLS certificate inspection and expiration findings
+- [x] Selected HTTP security-header checks and findings
+- [x] Consolidated console and JSON scan output
 - [ ] DNS security checks
 - [ ] Scheduled monitoring
 - [ ] Email and Telegram alerts
