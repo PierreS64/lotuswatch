@@ -4,12 +4,22 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
+from lotuswatch.models import Finding, Severity
 from lotuswatch.target import NormalizedTarget
 
 DEFAULT_TLS_PORT = 443
 DEFAULT_TLS_TIMEOUT = 5.0
+TLS_EXPIRY_LOW_MAX_DAYS = 30
+TLS_EXPIRY_MEDIUM_MAX_DAYS = 14
+
+EXPIRED_CERTIFICATE_VERIFY_CODE = 10
+HOSTNAME_MISMATCH_VERIFY_CODE = 62
+
+TLS_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/Security/Transport_Layer_Security"
+)
 
 
 class TLSStatus(StrEnum):
@@ -132,6 +142,177 @@ def check_tls_certificate(
             status=TLSStatus.CERTIFICATE_ERROR,
             error=str(exc),
         )
+
+
+def tls_result_to_findings(result: TLSCheckResult) -> list[Finding]:
+    """Convert a TLS check result into actionable security findings."""
+
+    if result.status is TLSStatus.PASSED:
+        return _expiration_findings(result)
+
+    if result.status is TLSStatus.VERIFICATION_ERROR:
+        return [_verification_finding(result)]
+
+    return []
+
+
+def _expiration_findings(result: TLSCheckResult) -> list[Finding]:
+    days = result.days_until_expiry
+
+    if days is None or days > TLS_EXPIRY_LOW_MAX_DAYS:
+        return []
+
+    evidence = _base_finding_evidence(result)
+
+    if days < 0:
+        return [
+            Finding(
+                id="LW-TLS-003",
+                severity=Severity.CRITICAL,
+                title="TLS certificate has expired",
+                description=(
+                    "The verified certificate validity period has ended. "
+                    "Clients may reject the HTTPS connection."
+                ),
+                evidence=evidence,
+                recommendation=(
+                    "Replace or renew the certificate immediately and confirm "
+                    "that the complete certificate chain is served correctly."
+                ),
+                reference=TLS_REFERENCE,
+            )
+        ]
+
+    if days <= TLS_EXPIRY_MEDIUM_MAX_DAYS:
+        return [
+            Finding(
+                id="LW-TLS-002",
+                severity=Severity.MEDIUM,
+                title="TLS certificate expires very soon",
+                description=(
+                    "The certificate expires within 14 days. A renewal delay "
+                    "could interrupt trusted HTTPS access."
+                ),
+                evidence=evidence,
+                recommendation=(
+                    "Renew the certificate promptly and verify that automated "
+                    "renewal and deployment are working."
+                ),
+                reference=TLS_REFERENCE,
+            )
+        ]
+
+    return [
+        Finding(
+            id="LW-TLS-001",
+            severity=Severity.LOW,
+            title="TLS certificate expires soon",
+            description=(
+                "The certificate expires within 30 days. Renewal should be "
+                "scheduled before the validity period ends."
+            ),
+            evidence=evidence,
+            recommendation=(
+                "Confirm the renewal schedule and monitor the certificate "
+                "until the renewed certificate is deployed."
+            ),
+            reference=TLS_REFERENCE,
+        )
+    ]
+
+
+def _verification_finding(result: TLSCheckResult) -> Finding:
+    evidence = _base_finding_evidence(result)
+
+    if _is_expired_verification_error(result):
+        return Finding(
+            id="LW-TLS-003",
+            severity=Severity.CRITICAL,
+            title="TLS certificate has expired",
+            description=(
+                "The TLS handshake reported that the certificate has expired, "
+                "so clients cannot establish a normally trusted connection."
+            ),
+            evidence=evidence,
+            recommendation=(
+                "Replace or renew the certificate immediately and verify the "
+                "certificate chain after deployment."
+            ),
+            reference=TLS_REFERENCE,
+        )
+
+    if _is_hostname_mismatch(result):
+        return Finding(
+            id="LW-TLS-004",
+            severity=Severity.HIGH,
+            title="TLS certificate hostname mismatch",
+            description=(
+                "The certificate is not valid for the requested hostname, so "
+                "clients cannot verify the identity of the endpoint."
+            ),
+            evidence=evidence,
+            recommendation=(
+                "Deploy a certificate whose Subject Alternative Names include "
+                "the requested hostname and confirm the correct certificate is "
+                "served through SNI."
+            ),
+            reference=TLS_REFERENCE,
+        )
+
+    return Finding(
+        id="LW-TLS-005",
+        severity=Severity.HIGH,
+        title="TLS certificate verification failed",
+        description=(
+            "The certificate could not be verified using the local trusted "
+            "certificate authorities. The diagnostic does not prove a more "
+            "specific cause."
+        ),
+        evidence=evidence,
+        recommendation=(
+            "Review the certificate chain, issuing authority, hostname, and "
+            "validity period, then retest using a standard trusted client."
+        ),
+        reference=TLS_REFERENCE,
+    )
+
+
+def _base_finding_evidence(result: TLSCheckResult) -> dict[str, JsonValue]:
+    evidence: dict[str, JsonValue] = {
+        "hostname": result.hostname,
+        "port": result.port,
+        "status": result.status.value,
+    }
+
+    if result.days_until_expiry is not None:
+        evidence["days_until_expiry"] = result.days_until_expiry
+
+    if result.not_after is not None:
+        evidence["not_after"] = result.not_after.isoformat()
+
+    if result.verification_code is not None:
+        evidence["verification_code"] = result.verification_code
+
+    if result.error is not None:
+        evidence["error"] = result.error
+
+    return evidence
+
+
+def _is_expired_verification_error(result: TLSCheckResult) -> bool:
+    if result.verification_code == EXPIRED_CERTIFICATE_VERIFY_CODE:
+        return True
+
+    error = (result.error or "").casefold()
+    return "expired" in error
+
+
+def _is_hostname_mismatch(result: TLSCheckResult) -> bool:
+    if result.verification_code == HOSTNAME_MISMATCH_VERIFY_CODE:
+        return True
+
+    error = (result.error or "").casefold()
+    return "hostname mismatch" in error or "not valid for" in error
 
 
 def _build_success_result(
