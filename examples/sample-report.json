@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "lotuswatch_version": "0.1.0-alpha.1",
+  "target": {
+    "input": "demo.example",
+    "normalized_url": "https://demo.example/"
+  },
+  "scanned_at": "2026-08-18T10:00:00Z",
+  "summary": {
+    "checks_completed": 1,
+    "findings_total": 0
+  },
+  "checks": [
+    {
+      "passed": true,
+      "status": "passed",
+      "initial_url": "http://demo.example/",
+      "final_url": "https://demo.example/",
+      "redirect_count": 1,
+      "initial_status_code": 301,
+      "final_status_code": 200,
+      "hops": [
+        {
+          "url": "http://demo.example/",
+          "status_code": 301,
+          "location": "https://demo.example/"
+        },
+        {
+          "url": "https://demo.example/",
+          "status_code": 200,
+          "location": null
+        }
+      ],
+      "error": null,
+      "name": "http_to_https_redirect"
+    }
+  ],
+  "findings": []
+}
