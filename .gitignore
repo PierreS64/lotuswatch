@@ -27,4 +27,5 @@ Thumbs.db
 
 # LotusWatch reports
 reports/
+report.json
 *.report.json
