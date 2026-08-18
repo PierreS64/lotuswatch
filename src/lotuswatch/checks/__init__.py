@@ -8,6 +8,7 @@ from lotuswatch.checks.tls import (
     TLSCheckResult,
     TLSStatus,
     check_tls_certificate,
+    tls_result_to_findings,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "check_http_to_https_redirect",
     "check_tls_certificate",
     "redirect_result_to_finding",
+    "tls_result_to_findings",
 ]
