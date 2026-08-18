@@ -3,13 +3,38 @@ from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
 
+from lotuswatch.models import Finding, Severity
 from lotuswatch.target import NormalizedTarget
 
 DEFAULT_HEADER_TIMEOUT = 5.0
 DEFAULT_MAX_REDIRECTS = 5
 MAX_HEADER_VALUE_LENGTH = 2048
+MIN_RECOMMENDED_HSTS_MAX_AGE = 15_552_000
+
+HSTS_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
+    "Strict-Transport-Security"
+)
+CSP_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
+    "Content-Security-Policy"
+)
+CONTENT_TYPE_OPTIONS_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
+    "X-Content-Type-Options"
+)
+REFERRER_POLICY_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy"
+)
+PERMISSIONS_POLICY_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy"
+)
+CLICKJACKING_REFERENCE = (
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
+    "Content-Security-Policy/frame-ancestors"
+)
 
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 
@@ -210,6 +235,277 @@ def check_security_headers(
             redirect_count=redirect_count,
             error=message,
         )
+
+
+def security_header_result_to_findings(
+    result: SecurityHeaderCheckResult,
+) -> list[Finding]:
+    """Convert a completed security-header check into contextual findings."""
+
+    if result.status is not SecurityHeaderStatus.COMPLETED or not result.passed:
+        return []
+
+    observations = {
+        observation.name.casefold(): observation for observation in result.headers
+    }
+    findings: list[Finding] = []
+
+    hsts = observations.get("strict-transport-security")
+    hsts_value = _observed_value(hsts)
+    hsts_max_age = _parse_hsts_max_age(hsts_value)
+
+    if hsts_value is None or hsts_max_age is None:
+        findings.append(
+            Finding(
+                id="LW-HEADER-001",
+                severity=Severity.MEDIUM,
+                title="Effective HSTS policy is missing",
+                description=(
+                    "No valid HSTS max-age directive was observed on the HTTPS "
+                    "response. This weakens protection against HTTP downgrade "
+                    "attempts but does not by itself demonstrate exploitability."
+                ),
+                evidence=_finding_evidence(
+                    result,
+                    {"strict_transport_security": hsts_value},
+                ),
+                recommendation=(
+                    "After confirming the site and required subdomains work "
+                    "exclusively over HTTPS, deploy an HSTS max-age appropriate "
+                    "for the rollout. Validate includeSubDomains or preload "
+                    "separately before enabling either directive."
+                ),
+                reference=HSTS_REFERENCE,
+            )
+        )
+    elif hsts_max_age < MIN_RECOMMENDED_HSTS_MAX_AGE:
+        findings.append(
+            Finding(
+                id="LW-HEADER-002",
+                severity=Severity.LOW,
+                title="HSTS max-age is shorter than recommended",
+                description=(
+                    "The HSTS max-age is below 15552000 seconds, so browsers "
+                    "may stop enforcing HTTPS sooner than expected. This is a "
+                    "defense-in-depth weakness, not proof of an exploitable flaw."
+                ),
+                evidence=_finding_evidence(
+                    result,
+                    {
+                        "strict_transport_security": hsts_value,
+                        "hsts_max_age": hsts_max_age,
+                        "recommended_minimum_seconds": (
+                            MIN_RECOMMENDED_HSTS_MAX_AGE
+                        ),
+                    },
+                ),
+                recommendation=(
+                    "Increase max-age gradually after verifying reliable HTTPS "
+                    "operation. Choose a duration that matches the deployment "
+                    "and rollback strategy rather than copying a policy blindly."
+                ),
+                reference=HSTS_REFERENCE,
+            )
+        )
+
+    csp = observations.get("content-security-policy")
+    csp_value = _observed_value(csp)
+
+    if csp_value is None:
+        findings.append(
+            Finding(
+                id="LW-HEADER-003",
+                severity=Severity.MEDIUM,
+                title="Content Security Policy is missing",
+                description=(
+                    "The response does not provide a Content-Security-Policy "
+                    "header. This removes a browser defense-in-depth control but "
+                    "does not mean that script injection is currently possible."
+                ),
+                evidence=_finding_evidence(
+                    result,
+                    {"content_security_policy": None},
+                ),
+                recommendation=(
+                    "Design and test a Content Security Policy based on the "
+                    "resources the application actually requires. Begin with "
+                    "reporting where appropriate and tighten the policy using "
+                    "observed violations."
+                ),
+                reference=CSP_REFERENCE,
+            )
+        )
+
+    content_type_options = observations.get("x-content-type-options")
+    content_type_options_value = _observed_value(content_type_options)
+
+    if (
+        content_type_options_value is None
+        or content_type_options_value.strip().casefold() != "nosniff"
+    ):
+        findings.append(
+            Finding(
+                id="LW-HEADER-004",
+                severity=Severity.LOW,
+                title="MIME sniffing protection is missing",
+                description=(
+                    "X-Content-Type-Options is missing or is not set to nosniff. "
+                    "This weakens browser MIME-type enforcement but does not by "
+                    "itself demonstrate a content-sniffing exploit."
+                ),
+                evidence=_finding_evidence(
+                    result,
+                    {"x_content_type_options": content_type_options_value},
+                ),
+                recommendation=(
+                    "Return X-Content-Type-Options: nosniff and ensure every "
+                    "resource is served with an accurate Content-Type value."
+                ),
+                reference=CONTENT_TYPE_OPTIONS_REFERENCE,
+            )
+        )
+
+    referrer_policy = observations.get("referrer-policy")
+    referrer_policy_value = _observed_value(referrer_policy)
+
+    if referrer_policy_value is None:
+        findings.append(
+            Finding(
+                id="LW-HEADER-005",
+                severity=Severity.LOW,
+                title="Referrer Policy is missing",
+                description=(
+                    "The response does not define a Referrer-Policy header. "
+                    "Browser defaults may expose more navigation context than "
+                    "intended, although this is not proof of sensitive data loss."
+                ),
+                evidence=_finding_evidence(result, {"referrer_policy": None}),
+                recommendation=(
+                    "Select a Referrer-Policy that matches the application's "
+                    "cross-origin navigation and analytics needs, then verify it "
+                    "against expected user flows."
+                ),
+                reference=REFERRER_POLICY_REFERENCE,
+            )
+        )
+
+    permissions_policy = observations.get("permissions-policy")
+    permissions_policy_value = _observed_value(permissions_policy)
+
+    if permissions_policy_value is None:
+        findings.append(
+            Finding(
+                id="LW-HEADER-006",
+                severity=Severity.INFO,
+                title="Permissions Policy is missing",
+                description=(
+                    "The response does not define a Permissions-Policy header. "
+                    "Explicit browser feature restrictions could improve defense "
+                    "in depth, but their absence is not a confirmed vulnerability."
+                ),
+                evidence=_finding_evidence(result, {"permissions_policy": None}),
+                recommendation=(
+                    "Review which browser features the application and embedded "
+                    "content require, then restrict only the unused or untrusted "
+                    "features after compatibility testing."
+                ),
+                reference=PERMISSIONS_POLICY_REFERENCE,
+            )
+        )
+
+    x_frame_options = observations.get("x-frame-options")
+    x_frame_options_value = _observed_value(x_frame_options)
+
+    if not _csp_has_frame_ancestors(csp_value) and x_frame_options_value is None:
+        findings.append(
+            Finding(
+                id="LW-HEADER-007",
+                severity=Severity.MEDIUM,
+                title="Clickjacking protection is missing",
+                description=(
+                    "Neither a CSP frame-ancestors directive nor an "
+                    "X-Frame-Options header was observed. This weakens browser "
+                    "framing defenses but does not confirm a clickjacking exploit."
+                ),
+                evidence=_finding_evidence(
+                    result,
+                    {
+                        "content_security_policy": csp_value,
+                        "x_frame_options": x_frame_options_value,
+                    },
+                ),
+                recommendation=(
+                    "Define an appropriate CSP frame-ancestors directive based "
+                    "on the origins allowed to frame the application. Add "
+                    "X-Frame-Options only when legacy browser support is needed."
+                ),
+                reference=CLICKJACKING_REFERENCE,
+            )
+        )
+
+    return findings
+
+
+def _observed_value(observation: HeaderObservation | None) -> str | None:
+    if observation is None or not observation.present:
+        return None
+
+    if observation.value is None:
+        return None
+
+    return observation.value[:MAX_HEADER_VALUE_LENGTH]
+
+
+def _parse_hsts_max_age(value: str | None) -> int | None:
+    if value is None:
+        return None
+
+    max_age_values: list[str] = []
+
+    for directive in value.split(";"):
+        name, separator, directive_value = directive.partition("=")
+
+        if name.strip().casefold() != "max-age":
+            continue
+
+        if not separator:
+            return None
+
+        max_age_values.append(directive_value.strip())
+
+    if len(max_age_values) != 1 or not max_age_values[0].isdigit():
+        return None
+
+    return int(max_age_values[0])
+
+
+def _csp_has_frame_ancestors(value: str | None) -> bool:
+    if value is None:
+        return False
+
+    for directive in value.split(";"):
+        parts = directive.strip().split(maxsplit=1)
+
+        if parts and parts[0].casefold() == "frame-ancestors":
+            return True
+
+    return False
+
+
+def _finding_evidence(
+    result: SecurityHeaderCheckResult,
+    observed: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    evidence: dict[str, JsonValue] = {
+        "final_url": result.final_url,
+        "status": result.status.value,
+    }
+
+    if result.status_code is not None:
+        evidence["status_code"] = result.status_code
+
+    evidence.update(observed)
+    return evidence
 
 
 def _select_https_endpoint(
