@@ -89,10 +89,7 @@ def missing_header_result() -> SecurityHeaderCheckResult:
         final_url="https://example.com/",
         status_code=200,
         redirect_count=0,
-        headers=[
-            HeaderObservation(name=name, present=False)
-            for name in names
-        ],
+        headers=[HeaderObservation(name=name, present=False) for name in names],
     )
 
 

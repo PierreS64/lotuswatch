@@ -18,12 +18,10 @@ HSTS_REFERENCE = (
     "Strict-Transport-Security"
 )
 CSP_REFERENCE = (
-    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
-    "Content-Security-Policy"
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
 )
 CONTENT_TYPE_OPTIONS_REFERENCE = (
-    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
-    "X-Content-Type-Options"
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options"
 )
 REFERRER_POLICY_REFERENCE = (
     "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy"
@@ -294,9 +292,7 @@ def security_header_result_to_findings(
                     {
                         "strict_transport_security": hsts_value,
                         "hsts_max_age": hsts_max_age,
-                        "recommended_minimum_seconds": (
-                            MIN_RECOMMENDED_HSTS_MAX_AGE
-                        ),
+                        "recommended_minimum_seconds": (MIN_RECOMMENDED_HSTS_MAX_AGE),
                     },
                 ),
                 recommendation=(

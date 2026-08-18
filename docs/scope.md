@@ -22,20 +22,30 @@ The current codebase supports:
 - Redirect-loop and unsupported-scheme detection
 - Explicit request timeouts
 - Controlled handling of connection errors
+- Verified TLS handshakes using the requested hostname as SNI
+- TLS version, cipher, certificate identity, issuer, and validity observations
+- Certificate expiration and verification findings
+- Inspection of six selected HTTP security headers
+- Contextual HSTS, CSP, MIME-sniffing, referrer, permissions, and framing findings
+- Independent continuation after controlled check errors when safe
+- Consolidated console sections and severity totals
+- Multi-check JSON reports
 - Structured findings and severity levels
 - Console output
 - Versioned UTF-8 JSON reports
 - UTC report timestamps
 - Protection against accidental report overwrite
 
-## Planned for v0.1
+## Planned Beyond the Current Alpha
 
-The following defensive checks are planned but are not implemented yet:
+The following capabilities are not implemented yet:
 
-- TLS certificate issuer and expiration inspection
-- Selected HTTP security-header checks
-- Clear remediation guidance for each new check
-- Additional console and report summaries
+- TLS protocol and cipher-suite grading
+- Certificate revocation and Certificate Transparency checks
+- Full Content Security Policy analysis
+- DNS security checks
+- Scheduled monitoring and alerting
+- Historical storage, dashboards, and trend analysis
 
 ## Explicitly Excluded
 
@@ -54,15 +64,24 @@ The following activities are outside the v0.1 scope:
 
 ## Current Network Behavior
 
-For the redirect check, LotusWatch:
+For one scan, LotusWatch:
 
 - Starts with the HTTP version of the normalized target
 - Sends streamed `GET` requests without retaining response bodies
 - Uses an explicit timeout
 - Follows no more than five redirects
 - Accepts only HTTP and HTTPS redirect destinations
-- Keeps TLS certificate verification enabled
+- Opens a verified TLS connection using the requested hostname as SNI
+- Inspects the peer certificate returned by that connection
+- Sends a streamed `GET` request to the selected HTTPS endpoint for headers
+- Rejects HTTPS-to-HTTP downgrades during the header check
+- Keeps TLS certificate verification enabled for HTTPS requests
 - Clears cookies between requests
+- Limits captured header values to 2048 characters
+
+The three check groups run in the order redirect, TLS certificate, then HTTP
+security headers. A controlled error in one group does not stop an independent
+group when continuing is safe.
 
 Automated tests use mocked HTTP responses and do not access public websites.
 
@@ -77,25 +96,33 @@ JSON reports can contain:
 - The normalized target URL
 - Redirect destinations
 - HTTP status codes
+- TLS version and cipher observations
+- Certificate subject, issuer, serial number, names, and validity timestamps
+- Selected HTTP security-header values
+- Controlled error diagnostics
 - Finding evidence
 
 Targets and redirect destinations may include query parameters. Do not place
 secrets in a target URL, and review every generated report before sharing or
-committing it.
+committing it. Certificate metadata and response headers may also reveal
+infrastructure or policy details that should not be published for a private
+system.
 
 ## Authorization Boundary
 
-The current redirect check creates traffic comparable to a small number of
-ordinary browser requests. Run it at a low frequency against public endpoints
-you are permitted to access, and stop if the service rejects or rate-limits the
-requests.
+The implemented checks create traffic comparable to a small number of ordinary
+browser requests plus one TLS handshake. Run LotusWatch at a low frequency
+against public endpoints you are permitted to access, and stop if the service
+rejects or rate-limits the requests.
 
 Any future intrusive capability must require explicit authorization from the
 system owner and additional safeguards appropriate to its risk.
 
 ## Interpretation
 
-A `PASS` only means that the individual check passed. For example, a redirect
-check can pass even when the final HTTPS endpoint returns an error status. A
-LotusWatch result is not proof that a website is secure, healthy, or free of
-vulnerabilities.
+A `PASS` only means that the individual limited check passed. For example, a
+redirect check can pass even when the final HTTPS endpoint returns an error
+status, and observed security headers can still contain an unsuitable policy.
+Missing headers describe reduced defense in depth rather than proof of an
+exploitable vulnerability. A LotusWatch result is not proof that a website is
+secure, healthy, or free of vulnerabilities.

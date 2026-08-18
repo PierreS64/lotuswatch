@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
-  "lotuswatch_version": "0.1.0-alpha.1",
+  "lotuswatch_version": "0.1.0-alpha.2",
   "target": {
     "input": "demo.example",
     "normalized_url": "https://demo.example/"
   },
   "scanned_at": "2026-08-18T10:00:00Z",
   "summary": {
-    "checks_completed": 1,
-    "findings_total": 0
+    "checks_completed": 3,
+    "findings_total": 3
   },
   "checks": [
     {
@@ -33,7 +33,126 @@
       ],
       "error": null,
       "name": "http_to_https_redirect"
+    },
+    {
+      "passed": true,
+      "status": "passed",
+      "hostname": "demo.example",
+      "port": 443,
+      "tls_version": "TLSv1.3",
+      "cipher": "TLS_AES_256_GCM_SHA384",
+      "cipher_protocol": "TLSv1.3",
+      "cipher_bits": 256,
+      "subject": {
+        "commonName": "demo.example",
+        "organizationName": "Example Organization"
+      },
+      "issuer": {
+        "commonName": "Example Test CA"
+      },
+      "serial_number": "00DEMO2026",
+      "subject_alt_names": [
+        "DNS:demo.example"
+      ],
+      "not_before": "2026-06-01T00:00:00Z",
+      "not_after": "2026-09-07T10:00:00Z",
+      "days_until_expiry": 20,
+      "verification_code": null,
+      "error": null,
+      "name": "tls_certificate"
+    },
+    {
+      "passed": true,
+      "status": "completed",
+      "requested_url": "https://demo.example/",
+      "final_url": "https://demo.example/",
+      "status_code": 200,
+      "redirect_count": 0,
+      "headers": [
+        {
+          "name": "Strict-Transport-Security",
+          "present": true,
+          "value": "max-age=31536000; includeSubDomains",
+          "truncated": false
+        },
+        {
+          "name": "Content-Security-Policy",
+          "present": false,
+          "value": null,
+          "truncated": false
+        },
+        {
+          "name": "X-Content-Type-Options",
+          "present": true,
+          "value": "nosniff",
+          "truncated": false
+        },
+        {
+          "name": "Referrer-Policy",
+          "present": false,
+          "value": null,
+          "truncated": false
+        },
+        {
+          "name": "Permissions-Policy",
+          "present": true,
+          "value": "camera=(), microphone=()",
+          "truncated": false
+        },
+        {
+          "name": "X-Frame-Options",
+          "present": true,
+          "value": "SAMEORIGIN",
+          "truncated": false
+        }
+      ],
+      "error": null,
+      "name": "http_security_headers"
     }
   ],
-  "findings": []
+  "findings": [
+    {
+      "id": "LW-TLS-001",
+      "severity": "low",
+      "title": "TLS certificate expires soon",
+      "description": "The certificate expires within 30 days. Renewal should be scheduled before the validity period ends.",
+      "evidence": {
+        "hostname": "demo.example",
+        "port": 443,
+        "status": "passed",
+        "days_until_expiry": 20,
+        "not_after": "2026-09-07T10:00:00+00:00"
+      },
+      "recommendation": "Confirm the renewal schedule and monitor the certificate until the renewed certificate is deployed.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/Security/Transport_Layer_Security"
+    },
+    {
+      "id": "LW-HEADER-003",
+      "severity": "medium",
+      "title": "Content Security Policy is missing",
+      "description": "The response does not provide a Content-Security-Policy header. This removes a browser defense-in-depth control but does not mean that script injection is currently possible.",
+      "evidence": {
+        "final_url": "https://demo.example/",
+        "status": "completed",
+        "status_code": 200,
+        "content_security_policy": null
+      },
+      "recommendation": "Design and test a Content Security Policy based on the resources the application actually requires. Begin with reporting where appropriate and tighten the policy using observed violations.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
+    },
+    {
+      "id": "LW-HEADER-005",
+      "severity": "low",
+      "title": "Referrer Policy is missing",
+      "description": "The response does not define a Referrer-Policy header. Browser defaults may expose more navigation context than intended, although this is not proof of sensitive data loss.",
+      "evidence": {
+        "final_url": "https://demo.example/",
+        "status": "completed",
+        "status_code": 200,
+        "referrer_policy": null
+      },
+      "recommendation": "Select a Referrer-Policy that matches the application's cross-origin navigation and analytics needs, then verify it against expected user flows.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy"
+    }
+  ]
 }

@@ -188,8 +188,7 @@ def test_csp_frame_ancestors_suppresses_clickjacking_finding(csp: str) -> None:
     assert "LW-HEADER-007" not in ids
 
 
-def test_x_frame_options_suppresses_clickjacking_finding_without_csp_directive(
-) -> None:
+def test_x_frame_options_suppresses_clickjacking_without_csp() -> None:
     values = secure_values()
     values["Content-Security-Policy"] = "default-src 'self'"
     values["X-Frame-Options"] = "SAMEORIGIN"

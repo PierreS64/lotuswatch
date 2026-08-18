@@ -92,9 +92,7 @@ def scan(
 
     redirect_result = check_http_to_https_redirect(normalized_target)
     redirect_finding = redirect_result_to_finding(redirect_result)
-    redirect_findings = (
-        [redirect_finding] if redirect_finding is not None else []
-    )
+    redirect_findings = [redirect_finding] if redirect_finding is not None else []
     _render_redirect_result(redirect_result, redirect_findings)
 
     tls_result = check_tls_certificate(normalized_target)
@@ -219,7 +217,11 @@ def _render_header_result(
     console.print(f"Redirects: {result.redirect_count}")
 
     for observation in result.headers:
-        state = "[green]PRESENT[/green]" if observation.present else "[yellow]MISSING[/yellow]"
+        state = (
+            "[green]PRESENT[/green]"
+            if observation.present
+            else "[yellow]MISSING[/yellow]"
+        )
         console.print(f"{state} {observation.name}")
 
     _render_findings(findings)
