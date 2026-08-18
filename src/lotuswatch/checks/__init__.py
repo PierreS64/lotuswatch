@@ -3,6 +3,7 @@ from lotuswatch.checks.headers import (
     SecurityHeaderCheckResult,
     SecurityHeaderStatus,
     check_security_headers,
+    security_header_result_to_findings,
 )
 from lotuswatch.checks.redirects import (
     RedirectCheckResult,
@@ -29,5 +30,6 @@ __all__ = [
     "check_security_headers",
     "check_tls_certificate",
     "redirect_result_to_finding",
+    "security_header_result_to_findings",
     "tls_result_to_findings",
 ]
