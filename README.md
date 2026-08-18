@@ -1,54 +1,54 @@
 # LotusWatch
 
-LotusWatch is an open-source command-line tool for monitoring website
-security configurations and presenting potential risks in a clear,
-actionable format.
+LotusWatch is an open-source command-line tool that inspects public website
+security configuration and presents the results in a clear, structured form.
 
 > [!WARNING]
-> LotusWatch is currently under active development and is not ready for
-> production use.
+> LotusWatch is experimental software under active development. It is not a
+> replacement for a complete security assessment.
 
-## Current Status
+## Current Features
 
-The current version provides the initial command-line interface.
-
-Planned checks include:
-
-- HTTP-to-HTTPS redirect detection
-- TLS certificate expiration
-- HTTP security headers
-- DNS security configuration
-- JSON reports
-- Scheduled monitoring and alerts
+- Validate and normalize domains and HTTP/HTTPS URLs.
+- Reject unsupported schemes and URLs containing embedded credentials.
+- Check whether an HTTP endpoint redirects safely to HTTPS.
+- Limit redirect chains and detect redirect loops.
+- Handle request timeouts and connection errors without a traceback.
+- Produce structured security findings.
+- Display results in the terminal.
+- Export versioned UTF-8 JSON reports.
+- Protect existing report files from accidental overwrite.
 
 ## Requirements
 
 - Python 3.12 or newer
 - Git
 
-LotusWatch is currently tested with Python 3.14.
+The project is currently developed and tested with Python 3.14 on Windows. The
+code is configured to remain compatible with Python 3.12 and newer.
 
 ## Installation
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lotuswatch.git
+git clone https://github.com/PierreS64/lotuswatch.git
 cd lotuswatch
 ```
 
-Replace `YOUR_USERNAME` with your GitHub username.
-
 ### 2. Create a virtual environment
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-On Linux or macOS:
+If Python 3.14 is not installed, replace `3.14` with an installed version that
+is at least Python 3.12.
+
+Linux or macOS:
 
 ```bash
 python3 -m venv .venv
@@ -62,12 +62,12 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-The editable installation allows source-code changes to take effect without
-reinstalling the project.
+The editable installation makes source-code changes available without
+reinstalling the package.
 
 ## Usage
 
-Display the help page:
+Display the main help page:
 
 ```bash
 lotuswatch --help
@@ -79,21 +79,74 @@ Display help for the scan command:
 lotuswatch scan --help
 ```
 
-Run the current scan placeholder:
+### Run a console scan
 
 ```bash
 lotuswatch scan example.com
 ```
 
-A complete URL is also accepted:
+LotusWatch also accepts a complete HTTP or HTTPS URL:
 
 ```bash
-lotuswatch scan https://example.com/
+lotuswatch scan https://example.com/path
 ```
 
-The scanning functionality is still under development.
+When a scheme is omitted, LotusWatch normalizes the target to HTTPS while
+still checking the corresponding HTTP endpoint for redirect behavior.
+
+### Generate a JSON report
+
+```bash
+lotuswatch scan example.com --format json --output report.json
+```
+
+The output file includes:
+
+- Report schema and LotusWatch versions
+- Original and normalized target
+- UTC scan timestamp
+- Redirect check details and HTTP status codes
+- Summary counters
+- Structured findings
+
+LotusWatch refuses to overwrite an existing report. Choose a new output path
+or move the previous report before running the command again.
+
+See [`examples/sample-report.json`](examples/sample-report.json) for a safe,
+synthetic example using the reserved `demo.example` domain.
+
+## Interpreting Redirect Results
+
+- `PASS` means the HTTP endpoint completed a redirect chain to HTTPS.
+- `FAIL` means the chain ended on HTTP or could not redirect safely.
+- `ERROR` means the check could not complete because of a timeout or connection
+  failure.
+- `WARNING` can appear when the redirect reaches HTTPS but the destination
+  returns an HTTP error status.
+
+A redirect `PASS` does not prove that the complete website is healthy or free
+of vulnerabilities. It only describes the redirect behavior tested by the
+current check.
 
 ## Development
+
+Apply code formatting:
+
+```bash
+ruff format .
+```
+
+Check formatting without modifying files:
+
+```bash
+ruff format --check .
+```
+
+Run static checks:
+
+```bash
+ruff check .
+```
 
 Run the automated tests:
 
@@ -101,111 +154,100 @@ Run the automated tests:
 pytest
 ```
 
-Check the source code:
-
-```bash
-ruff check .
-```
-
-Check code formatting:
-
-```bash
-ruff format --check .
-```
-
-Apply automatic formatting:
-
-```bash
-ruff format .
-```
-
 Before creating a commit, run:
 
 ```bash
+ruff format --check .
 ruff check .
 pytest
 ```
+
+Tests for network behavior use mocked HTTP responses and do not depend on
+public websites.
 
 ## Project Structure
 
 ```text
 lotuswatch/
-├── src/
-│   └── lotuswatch/
-│       ├── __init__.py
-│       └── cli.py
-├── tests/
-│   └── test_cli.py
-├── docs/
-│   └── scope.md
-├── examples/
-├── .gitignore
-├── LICENSE
-├── README.md
-├── SECURITY.md
-└── pyproject.toml
+|-- docs/
+|   `-- scope.md
+|-- examples/
+|   `-- sample-report.json
+|-- src/
+|   `-- lotuswatch/
+|       |-- checks/
+|       |   `-- redirects.py
+|       |-- models/
+|       |   |-- finding.py
+|       |   `-- report.py
+|       |-- reporters/
+|       |   `-- json.py
+|       |-- cli.py
+|       |-- exceptions.py
+|       `-- target.py
+|-- tests/
+|   |-- checks/
+|   |-- models/
+|   |-- reporters/
+|   |-- test_cli.py
+|   `-- test_target.py
+|-- LICENSE
+|-- README.md
+|-- SECURITY.md
+`-- pyproject.toml
 ```
 
-## Project Scope
+## Scope and Authorized Use
 
-LotusWatch is intended to perform defensive checks such as:
+The current version makes a small number of ordinary HTTP requests to inspect
+redirect behavior. Use it at a low frequency and only against public endpoints
+that you are permitted to access.
 
-- Validating website targets
-- Detecting HTTP-to-HTTPS redirects
-- Inspecting TLS certificate expiration
-- Checking selected HTTP security headers
-- Producing console and JSON reports
+Do not use LotusWatch to bypass authentication, evade protective controls,
+perform denial-of-service testing, test credentials, or exploit a system
+without explicit authorization.
 
-LotusWatch does not perform:
-
-- Vulnerability exploitation
-- Credential attacks
-- Brute-force attacks
-- Denial-of-service testing
-- Unauthorized network scanning
-
-See [`docs/scope.md`](docs/scope.md) for the complete scope.
-
-## Authorized Use
-
-Only use LotusWatch on systems that you own or systems for which you have
-explicit authorization to inspect.
-
-Users are responsible for complying with applicable laws, contracts, and
-acceptable-use policies.
+Users are responsible for complying with applicable laws, contracts, terms of
+service, and acceptable-use policies. See [`docs/scope.md`](docs/scope.md) for
+the detailed technical scope.
 
 ## Limitations
 
-LotusWatch is experimental software. Its findings may contain false positives
-or false negatives and must not be treated as a complete security assessment.
+- Results may contain false positives or false negatives.
+- Redirect success does not prove endpoint availability or application safety.
+- TLS certificates and HTTP security headers are not inspected yet.
+- Domain ownership is not verified automatically.
+- JSON reports can contain target URLs and redirect destinations. Review them
+  before sharing or committing them.
 
 ## Roadmap
 
 - [x] Initial command-line interface
-- [x] Automated CLI tests
-- [ ] Target validation and normalization
-- [ ] HTTP-to-HTTPS redirect detection
-- [ ] HTTP security-header checks
+- [x] Target validation and normalization
+- [x] Structured finding model
+- [x] HTTP-to-HTTPS redirect detection
+- [x] Redirect-loop and timeout handling
+- [x] JSON report generation
 - [ ] TLS certificate inspection
-- [ ] JSON report generation
+- [ ] HTTP security-header checks
+- [ ] DNS security checks
 - [ ] Scheduled monitoring
 - [ ] Email and Telegram alerts
 - [ ] Web dashboard
 
 ## Contributing
 
-LotusWatch is currently in its early development stage.
-
 Bug reports, feature suggestions, documentation improvements, and pull
-requests are welcome. Please open an issue before proposing a major change.
+requests are welcome. Open an issue before proposing a major change so its
+scope and design can be discussed first.
+
+Do not include credentials, private URLs, access tokens, cookies, private
+keys, or sensitive scan reports in issues or pull requests.
 
 ## Security
 
-Please read [`SECURITY.md`](SECURITY.md) before reporting a security
-vulnerability.
-
-Do not include passwords, access tokens, cookies, private keys, or sensitive
-scan results in public issues.
+Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability in
+LotusWatch. Do not disclose exploitable details in a public issue.
 
 ## License
 
