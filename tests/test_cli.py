@@ -7,6 +7,16 @@ from typer.testing import CliRunner, Result
 
 import lotuswatch.cli
 from lotuswatch.checks import (
+    CAACheckResult,
+    CAACheckStatus,
+    CAARecord,
+    DMARCPolicy,
+    DNSQueryResult,
+    DNSQueryStatus,
+    DNSRecordType,
+    DNSRecordValue,
+    EmailDNSCheckResult,
+    EmailDNSStatus,
     HeaderObservation,
     RedirectCheckResult,
     RedirectStatus,
@@ -100,6 +110,96 @@ def missing_header_result() -> SecurityHeaderCheckResult:
     )
 
 
+def successful_caa_result() -> CAACheckResult:
+    return CAACheckResult(
+        completed=True,
+        status=CAACheckStatus.POLICY_FOUND,
+        hostname="example.com",
+        queried_names=["example.com."],
+        effective_name="example.com.",
+        records=[
+            CAARecord(
+                flags=0,
+                tag="issue",
+                value="ca.example",
+                issuer_critical=False,
+                known_tag=True,
+            )
+        ],
+    )
+
+
+def missing_caa_result() -> CAACheckResult:
+    return CAACheckResult(
+        completed=True,
+        status=CAACheckStatus.NO_POLICY,
+        hostname="example.com",
+        queried_names=["example.com.", "com."],
+    )
+
+
+def dns_query_result(
+    query_name: str,
+    *,
+    value: str | None = None,
+    status: DNSQueryStatus = DNSQueryStatus.ANSWER,
+    error: str | None = None,
+) -> DNSQueryResult:
+    record = DNSRecordValue(value=value) if value is not None else None
+    completed = status in {
+        DNSQueryStatus.ANSWER,
+        DNSQueryStatus.NO_ANSWER,
+        DNSQueryStatus.NXDOMAIN,
+    }
+    return DNSQueryResult(
+        completed=completed,
+        answered=record is not None,
+        status=status,
+        query_name=query_name,
+        record_type=DNSRecordType.TXT,
+        records=[record] if record is not None else [],
+        error=error,
+    )
+
+
+def successful_email_dns_result() -> EmailDNSCheckResult:
+    spf_record = DNSRecordValue(value="v=spf1 -all")
+    dmarc_record = DNSRecordValue(value="v=DMARC1; p=reject")
+    return EmailDNSCheckResult(
+        completed=True,
+        status=EmailDNSStatus.COMPLETED,
+        hostname="example.com",
+        spf_query=dns_query_result("example.com.", value=spf_record.value),
+        dmarc_query=dns_query_result(
+            "_dmarc.example.com.",
+            value=dmarc_record.value,
+        ),
+        spf_records=[spf_record],
+        dmarc_records=[dmarc_record],
+        dmarc_policy=DMARCPolicy.REJECT,
+        spf_interpretation_complete=True,
+        dmarc_interpretation_complete=True,
+    )
+
+
+def missing_email_dns_result() -> EmailDNSCheckResult:
+    return EmailDNSCheckResult(
+        completed=True,
+        status=EmailDNSStatus.COMPLETED,
+        hostname="example.com",
+        spf_query=dns_query_result(
+            "example.com.",
+            status=DNSQueryStatus.NO_ANSWER,
+        ),
+        dmarc_query=dns_query_result(
+            "_dmarc.example.com.",
+            status=DNSQueryStatus.NXDOMAIN,
+        ),
+        spf_interpretation_complete=True,
+        dmarc_interpretation_complete=True,
+    )
+
+
 def stub_successful_checks(monkeypatch) -> None:
     monkeypatch.setattr(
         lotuswatch.cli,
@@ -115,6 +215,16 @@ def stub_successful_checks(monkeypatch) -> None:
         lotuswatch.cli,
         "check_security_headers",
         lambda target, *, endpoint_url=None: successful_header_result(),
+    )
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_caa_records",
+        lambda target: successful_caa_result(),
+    )
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_email_dns_records",
+        lambda target: successful_email_dns_result(),
     )
 
 
@@ -143,6 +253,14 @@ def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None
         received_endpoint.append(endpoint_url)
         return successful_header_result()
 
+    def caa_check(target):
+        calls.append("caa")
+        return successful_caa_result()
+
+    def email_dns_check(target):
+        calls.append("email_dns")
+        return successful_email_dns_result()
+
     monkeypatch.setattr(
         lotuswatch.cli,
         "check_http_to_https_redirect",
@@ -150,19 +268,24 @@ def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None
     )
     monkeypatch.setattr(lotuswatch.cli, "check_tls_certificate", tls_check)
     monkeypatch.setattr(lotuswatch.cli, "check_security_headers", header_check)
+    monkeypatch.setattr(lotuswatch.cli, "check_caa_records", caa_check)
+    monkeypatch.setattr(lotuswatch.cli, "check_email_dns_records", email_dns_check)
 
     result = runner.invoke(app, ["scan", "EXAMPLE.COM"])
     output = plain_output(result)
 
     assert result.exit_code == 0
-    assert calls == ["redirect", "tls", "headers"]
+    assert calls == ["redirect", "tls", "headers", "caa", "email_dns"]
     assert received_endpoint == ["https://example.com/"]
     assert "EXAMPLE.COM" in output
     assert "https://example.com/" in output
     assert output.index("HTTP to HTTPS redirect") < output.index("TLS certificate")
     assert output.index("TLS certificate") < output.index("HTTP security headers")
-    assert output.index("HTTP security headers") < output.index("Scan summary")
-    assert "Checks completed: 3/3" in output
+    assert output.index("HTTP security headers") < output.index("DNS CAA records")
+    assert output.index("DNS CAA records") < output.index("DNS email authentication")
+    assert output.index("DNS email authentication") < output.index("Scan summary")
+    assert "Checks recorded: 5" in output
+    assert "Checks completed: 5/5" in output
     assert "Findings: 0" in output
 
 
@@ -232,12 +355,14 @@ def test_scan_writes_all_check_results_to_json(
     assert report["schema_version"] == "1.0"
     assert report["target"]["input"] == "EXAMPLE.COM"
     assert report["target"]["normalized_url"] == "https://example.com/"
-    assert report["summary"]["checks_completed"] == 3
+    assert report["summary"]["checks_completed"] == 5
     assert report["summary"]["findings_total"] == 0
     assert [check["name"] for check in report["checks"]] == [
         "http_to_https_redirect",
         "tls_certificate",
         "http_security_headers",
+        "dns_caa",
+        "dns_email_authentication",
     ]
 
 
@@ -275,6 +400,34 @@ def test_controlled_errors_do_not_stop_independent_checks(monkeypatch) -> None:
             error="Security-header connection failed.",
         )
 
+    def caa_check(target):
+        calls.append("caa")
+        return CAACheckResult(
+            completed=False,
+            status=CAACheckStatus.TIMEOUT,
+            hostname="example.com",
+            queried_names=["example.com."],
+            error="DNS query timed out.",
+        )
+
+    def email_dns_check(target):
+        calls.append("email_dns")
+        return EmailDNSCheckResult(
+            completed=False,
+            status=EmailDNSStatus.FAILED,
+            hostname="example.com",
+            spf_query=dns_query_result(
+                "example.com.",
+                status=DNSQueryStatus.TIMEOUT,
+                error="SPF DNS query timed out.",
+            ),
+            dmarc_query=dns_query_result(
+                "_dmarc.example.com.",
+                status=DNSQueryStatus.NO_NAMESERVERS,
+                error="No DNS nameserver answered DMARC.",
+            ),
+        )
+
     monkeypatch.setattr(
         lotuswatch.cli,
         "check_http_to_https_redirect",
@@ -282,14 +435,16 @@ def test_controlled_errors_do_not_stop_independent_checks(monkeypatch) -> None:
     )
     monkeypatch.setattr(lotuswatch.cli, "check_tls_certificate", tls_check)
     monkeypatch.setattr(lotuswatch.cli, "check_security_headers", header_check)
+    monkeypatch.setattr(lotuswatch.cli, "check_caa_records", caa_check)
+    monkeypatch.setattr(lotuswatch.cli, "check_email_dns_records", email_dns_check)
 
     result = runner.invoke(app, ["scan", "example.com"])
     output = plain_output(result)
 
     assert result.exit_code == 0
-    assert calls == ["redirect", "tls", "headers"]
-    assert output.count("ERROR") == 3
-    assert "Checks completed: 0/3" in output
+    assert calls == ["redirect", "tls", "headers", "caa", "email_dns"]
+    assert output.count("ERROR") == 5
+    assert "Checks completed: 0/5" in output
     assert "Traceback" not in output
 
 
@@ -320,6 +475,16 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
         "check_security_headers",
         lambda target, *, endpoint_url=None: missing_header_result(),
     )
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_caa_records",
+        lambda target: missing_caa_result(),
+    )
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_email_dns_records",
+        lambda target: missing_email_dns_result(),
+    )
     report_path = tmp_path / "report.json"
 
     result = runner.invoke(
@@ -339,9 +504,9 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
     report = json.loads(report_path.read_text(encoding="utf-8"))
     finding_ids = [finding["id"] for finding in report["findings"]]
 
-    assert len(report["checks"]) == 3
+    assert len(report["checks"]) == 5
     assert report["summary"]["checks_completed"] == len(report["checks"])
-    assert report["summary"]["findings_total"] == len(report["findings"]) == 8
+    assert report["summary"]["findings_total"] == len(report["findings"]) == 11
     assert finding_ids == [
         "LW-HTTP-001",
         "LW-TLS-002",
@@ -351,8 +516,131 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
         "LW-HEADER-005",
         "LW-HEADER-006",
         "LW-HEADER-007",
+        "LW-DNS-001",
+        "LW-DNS-003",
+        "LW-DNS-005",
     ]
-    assert "Severity: critical 0, high 0, medium 5, low 2, info 1" in output
+    assert "Severity: critical 0, high 0, medium 5, low 2, info 4" in output
+
+
+def test_caa_error_does_not_stop_successful_email_dns_check(monkeypatch) -> None:
+    stub_successful_checks(monkeypatch)
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_caa_records",
+        lambda target: CAACheckResult(
+            completed=False,
+            status=CAACheckStatus.TIMEOUT,
+            hostname="example.com",
+            queried_names=["example.com."],
+            error="CAA DNS query timed out.",
+        ),
+    )
+
+    result = runner.invoke(app, ["scan", "example.com"])
+    output = plain_output(result)
+
+    assert result.exit_code == 0
+    assert "CAA DNS query timed out" in output
+    assert "DNS email authentication" in output
+    assert "SPF and DMARC observations completed" in output
+    assert "Checks completed: 4/5" in output
+    assert "Traceback" not in output
+
+
+def test_email_dns_error_remains_in_json_with_successful_caa(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    stub_successful_checks(monkeypatch)
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_email_dns_records",
+        lambda target: EmailDNSCheckResult(
+            completed=False,
+            status=EmailDNSStatus.FAILED,
+            hostname="example.com",
+            spf_query=dns_query_result(
+                "example.com.",
+                status=DNSQueryStatus.TIMEOUT,
+                error="SPF query timed out.",
+            ),
+            dmarc_query=dns_query_result(
+                "_dmarc.example.com.",
+                status=DNSQueryStatus.NO_NAMESERVERS,
+                error="DMARC nameservers failed.",
+            ),
+        ),
+    )
+    report_path = tmp_path / "partial-report.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "example.com",
+            "--format",
+            "json",
+            "--output",
+            str(report_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    checks = {check["name"]: check for check in report["checks"]}
+
+    assert report["summary"]["checks_completed"] == 4
+    assert checks["dns_caa"]["status"] == "policy_found"
+    assert checks["dns_email_authentication"]["status"] == "failed"
+    assert checks["dns_email_authentication"]["spf_query"]["status"] == "timeout"
+
+
+def test_dns_console_bounds_caa_values_and_omits_txt_values(monkeypatch) -> None:
+    stub_successful_checks(monkeypatch)
+    long_caa_value = "[bold]" + "x" * 200
+    caa_records = [
+        CAARecord(
+            flags=0,
+            tag="issue",
+            value=long_caa_value if index == 0 else f"ca-{index}.example",
+            issuer_critical=False,
+            known_tag=True,
+        )
+        for index in range(6)
+    ]
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_caa_records",
+        lambda target: CAACheckResult(
+            completed=True,
+            status=CAACheckStatus.POLICY_FOUND,
+            hostname="example.com",
+            queried_names=["example.com."],
+            effective_name="example.com.",
+            records=caa_records,
+        ),
+    )
+    email_result = successful_email_dns_result()
+    assert email_result.spf_query is not None
+    email_result.spf_query.records[
+        0
+    ].value = "v=spf1 include:private-mail-provider.example -all"
+    email_result.spf_records[0].value = email_result.spf_query.records[0].value
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "check_email_dns_records",
+        lambda target: email_result,
+    )
+
+    result = runner.invoke(app, ["scan", "example.com"])
+    output = plain_output(result)
+
+    assert result.exit_code == 0
+    assert long_caa_value not in output
+    assert "[bold]" in output
+    assert "1 additional record(s) not displayed" in output
+    assert "private-mail-provider" not in output
 
 
 def test_scan_does_not_overwrite_existing_report(

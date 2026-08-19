@@ -62,9 +62,18 @@ class ScanReport(BaseModel):
         normalized_url: str,
         checks: list[dict[str, JsonValue]],
         findings: list[Finding],
+        checks_completed: int | None = None,
         scanned_at: datetime | None = None,
     ) -> Self:
         """Create a report and calculate its summary."""
+
+        completed_count = len(checks) if checks_completed is None else checks_completed
+
+        if not 0 <= completed_count <= len(checks):
+            raise ValueError(
+                "Completed check count must be between zero and the number "
+                "of recorded checks."
+            )
 
         return cls(
             lotuswatch_version=lotuswatch_version,
@@ -74,7 +83,7 @@ class ScanReport(BaseModel):
             ),
             scanned_at=scanned_at or datetime.now(UTC),
             summary=ScanSummary(
-                checks_completed=len(checks),
+                checks_completed=completed_count,
                 findings_total=len(findings),
             ),
             checks=checks,

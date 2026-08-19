@@ -51,6 +51,34 @@ def test_serializes_report_to_json_compatible_data() -> None:
     assert serialized["findings"] == []
 
 
+def test_accepts_explicit_completed_check_count() -> None:
+    report = ScanReport.create(
+        lotuswatch_version="0.1.0-alpha.2",
+        original_target="example.com",
+        normalized_url="https://example.com/",
+        checks=[{"name": "one"}, {"name": "two"}],
+        findings=[],
+        checks_completed=1,
+    )
+
+    assert report.summary.checks_completed == 1
+
+
+@pytest.mark.parametrize("checks_completed", [-1, 2])
+def test_rejects_completed_count_outside_recorded_checks(
+    checks_completed: int,
+) -> None:
+    with pytest.raises(ValueError, match="Completed check count"):
+        ScanReport.create(
+            lotuswatch_version="0.1.0-alpha.2",
+            original_target="example.com",
+            normalized_url="https://example.com/",
+            checks=[{"name": "one"}],
+            findings=[],
+            checks_completed=checks_completed,
+        )
+
+
 def test_rejects_naive_timestamp() -> None:
     with pytest.raises(
         ValidationError,

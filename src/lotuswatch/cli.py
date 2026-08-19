@@ -5,18 +5,28 @@ from urllib.parse import urlsplit
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from lotuswatch import __version__
 from lotuswatch.checks import (
+    CAACheckResult,
+    CAACheckStatus,
+    DNSQueryResult,
+    EmailDNSCheckResult,
+    EmailDNSStatus,
     RedirectCheckResult,
     RedirectStatus,
     SecurityHeaderCheckResult,
     SecurityHeaderStatus,
     TLSCheckResult,
     TLSStatus,
+    caa_result_to_findings,
+    check_caa_records,
+    check_email_dns_records,
     check_http_to_https_redirect,
     check_security_headers,
     check_tls_certificate,
+    email_dns_result_to_findings,
     redirect_result_to_finding,
     security_header_result_to_findings,
     tls_result_to_findings,
@@ -41,6 +51,9 @@ app = typer.Typer(
 )
 
 console = Console()
+
+MAX_CONSOLE_CAA_RECORDS = 5
+MAX_CONSOLE_DNS_VALUE_LENGTH = 120
 
 
 @app.callback()
@@ -107,19 +120,48 @@ def scan(
     header_findings = security_header_result_to_findings(header_result)
     _render_header_result(header_result, header_findings)
 
-    findings = redirect_findings + tls_findings + header_findings
-    completed_checks = _completed_check_count(
-        redirect_result,
-        tls_result,
-        header_result,
-    )
-    _render_scan_summary(completed_checks, findings)
+    caa_result = check_caa_records(normalized_target)
+    caa_findings = caa_result_to_findings(caa_result)
+    _render_caa_result(caa_result, caa_findings)
 
-    checks = [
-        _named_check_data("http_to_https_redirect", redirect_result),
-        _named_check_data("tls_certificate", tls_result),
-        _named_check_data("http_security_headers", header_result),
+    email_dns_result = check_email_dns_records(normalized_target)
+    email_dns_findings = email_dns_result_to_findings(email_dns_result)
+    _render_email_dns_result(email_dns_result, email_dns_findings)
+
+    findings = (
+        redirect_findings
+        + tls_findings
+        + header_findings
+        + caa_findings
+        + email_dns_findings
+    )
+    executed_checks = [
+        (
+            "http_to_https_redirect",
+            redirect_result,
+            redirect_result.status
+            not in {RedirectStatus.TIMEOUT, RedirectStatus.CONNECTION_ERROR},
+        ),
+        (
+            "tls_certificate",
+            tls_result,
+            tls_result.status in {TLSStatus.PASSED, TLSStatus.VERIFICATION_ERROR},
+        ),
+        (
+            "http_security_headers",
+            header_result,
+            header_result.status is SecurityHeaderStatus.COMPLETED,
+        ),
+        ("dns_caa", caa_result, caa_result.completed),
+        (
+            "dns_email_authentication",
+            email_dns_result,
+            email_dns_result.completed,
+        ),
     ]
+    checks = [_named_check_data(name, result) for name, result, _ in executed_checks]
+    completed_checks = sum(completed for _, _, completed in executed_checks)
+    _render_scan_summary(len(checks), completed_checks, findings)
 
     if output_format is OutputFormat.JSON:
         assert output is not None
@@ -130,6 +172,7 @@ def scan(
             normalized_url=normalized_target.url,
             checks=checks,
             findings=findings,
+            checks_completed=completed_checks,
         )
 
         try:
@@ -235,7 +278,93 @@ def _render_findings(findings: list[Finding]) -> None:
         )
 
 
+def _render_caa_result(
+    result: CAACheckResult,
+    findings: list[Finding],
+) -> None:
+    console.print("\n[bold]DNS CAA records[/bold]")
+
+    if result.status is CAACheckStatus.NOT_APPLICABLE:
+        console.print("[yellow]WARNING[/yellow] CAA is not applicable to this target.")
+    elif not result.completed:
+        error = result.error or "CAA check did not produce a complete conclusion."
+        console.print(f"[yellow]ERROR[/yellow] {escape(error)}")
+    elif findings:
+        console.print("[yellow]WARNING[/yellow] CAA policy needs attention.")
+    else:
+        console.print("[green]PASS[/green] Effective CAA policy was observed.")
+
+    console.print(f"Hostname: [cyan]{result.hostname}[/cyan]")
+    console.print(f"Queries: {len(result.queried_names)}")
+    console.print(f"Effective name: {_display_value(result.effective_name)}")
+    console.print(f"CAA records: {len(result.records)}")
+
+    for record in result.records[:MAX_CONSOLE_CAA_RECORDS]:
+        console.print(
+            "CAA: "
+            f"flags={record.flags} "
+            f"tag={escape(record.tag)} "
+            f"value={escape(_short_dns_value(record.value))}"
+        )
+
+    remaining_records = len(result.records) - MAX_CONSOLE_CAA_RECORDS
+
+    if remaining_records > 0:
+        console.print(f"CAA: {remaining_records} additional record(s) not displayed.")
+
+    _render_findings(findings)
+
+
+def _render_email_dns_result(
+    result: EmailDNSCheckResult,
+    findings: list[Finding],
+) -> None:
+    console.print("\n[bold]DNS email authentication[/bold]")
+
+    if result.status is EmailDNSStatus.NOT_APPLICABLE:
+        console.print(
+            "[yellow]WARNING[/yellow] Email DNS checks are not applicable "
+            "to this target."
+        )
+    elif not result.completed:
+        console.print(
+            "[yellow]ERROR[/yellow] One or more email DNS conclusions are incomplete."
+        )
+    elif findings:
+        console.print(
+            "[yellow]WARNING[/yellow] Email authentication posture needs attention."
+        )
+    else:
+        console.print("[green]PASS[/green] SPF and DMARC observations completed.")
+
+    console.print(f"Hostname: [cyan]{result.hostname}[/cyan]")
+    _render_email_query("SPF", result.spf_query, len(result.spf_records))
+    _render_email_query("DMARC", result.dmarc_query, len(result.dmarc_records))
+    console.print(f"DMARC policy: {_display_value(result.dmarc_policy)}")
+    _render_findings(findings)
+
+
+def _render_email_query(
+    label: str,
+    query: DNSQueryResult | None,
+    matching_records: int,
+) -> None:
+    if query is None:
+        console.print(f"{label} query: N/A")
+        console.print(f"{label} records: 0")
+        return
+
+    console.print(
+        f"{label} query: [cyan]{query.query_name}[/cyan] ({query.status.value})"
+    )
+    console.print(f"{label} records: {matching_records}")
+
+    if query.error is not None:
+        console.print(f"{label} error: {escape(query.error)}")
+
+
 def _render_scan_summary(
+    recorded_checks: int,
     completed_checks: int,
     findings: list[Finding],
 ) -> None:
@@ -245,8 +374,8 @@ def _render_scan_summary(
     }
 
     console.print("\n[bold]Scan summary[/bold]")
-    console.print("Checks recorded: 3")
-    console.print(f"Checks completed: {completed_checks}/3")
+    console.print(f"Checks recorded: {recorded_checks}")
+    console.print(f"Checks completed: {completed_checks}/{recorded_checks}")
     console.print(f"Findings: {len(findings)}")
     console.print(
         "Severity: "
@@ -256,24 +385,6 @@ def _render_scan_summary(
         f"low {severity_counts[Severity.LOW]}, "
         f"info {severity_counts[Severity.INFO]}"
     )
-
-
-def _completed_check_count(
-    redirect_result: RedirectCheckResult,
-    tls_result: TLSCheckResult,
-    header_result: SecurityHeaderCheckResult,
-) -> int:
-    redirect_completed = redirect_result.status not in {
-        RedirectStatus.TIMEOUT,
-        RedirectStatus.CONNECTION_ERROR,
-    }
-    tls_completed = tls_result.status in {
-        TLSStatus.PASSED,
-        TLSStatus.VERIFICATION_ERROR,
-    }
-    headers_completed = header_result.status is SecurityHeaderStatus.COMPLETED
-
-    return sum((redirect_completed, tls_completed, headers_completed))
 
 
 def _redirect_https_endpoint(result: RedirectCheckResult) -> str | None:
@@ -291,6 +402,13 @@ def _named_check_data(name: str, result) -> dict:
 
 def _display_value(value: object | None) -> str:
     return "N/A" if value is None else str(value)
+
+
+def _short_dns_value(value: str) -> str:
+    if len(value) <= MAX_CONSOLE_DNS_VALUE_LENGTH:
+        return value
+
+    return f"{value[:MAX_CONSOLE_DNS_VALUE_LENGTH]}..."
 
 
 if __name__ == "__main__":
