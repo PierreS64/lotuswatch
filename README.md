@@ -1,5 +1,7 @@
 # LotusWatch
 
+[![CI](https://github.com/PierreS64/lotuswatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/PierreS64/lotuswatch/actions/workflows/ci.yml)
+
 LotusWatch is an open-source command-line tool that inspects public website
 security configuration and presents the results in a clear, structured form.
 
@@ -16,19 +18,24 @@ security configuration and presents the results in a clear, structured form.
 - Inspect TLS certificate identity, validity, issuer, and expiration.
 - Report certificates that are expiring, expired, mismatched, or untrusted.
 - Inspect HSTS, CSP, MIME-sniffing, referrer, permissions, and framing headers.
+- Query bounded CAA and TXT records through the system recursive resolver.
+- Inspect effective CAA certificate-issuance policy on a hostname or parent.
+- Inspect SPF and DMARC records without performing full email-policy evaluation.
+- Report missing, conflicting, or ambiguous DNS controls conservatively.
 - Handle controlled network, TLS, and parsing errors without a traceback.
 - Produce structured findings with evidence and remediation guidance.
 - Display separate check results and a severity summary in the terminal.
 - Export versioned UTF-8 JSON reports.
 - Protect existing report files from accidental overwrite.
+- Verify formatting, linting, and tests on Python 3.12, 3.13, and 3.14 in CI.
 
 ## Requirements
 
 - Python 3.12 or newer
 - Git
 
-The project is currently developed and tested with Python 3.14 on Windows. The
-code is configured to remain compatible with Python 3.12 and newer.
+The project is currently developed with Python 3.14 on Windows. GitHub Actions
+also verifies Python 3.12, 3.13, and 3.14 on Linux.
 
 ## Installation
 
@@ -108,7 +115,7 @@ The output file includes:
 - Report schema and LotusWatch versions
 - Original and normalized target
 - UTC scan timestamp
-- Redirect, TLS certificate, and HTTP security-header check details
+- Redirect, TLS certificate, HTTP security-header, CAA, SPF, and DMARC details
 - Summary counters
 - Structured findings with evidence, severity, and remediation guidance
 
@@ -190,12 +197,57 @@ Security-header finding categories mean:
   `X-Frame-Options` was observed; this is not proof of a working clickjacking
   attack.
 
+## Interpreting DNS Results
+
+LotusWatch runs two DNS check groups after the website checks:
+
+- `DNS CAA records` searches the target hostname and then its parent names for
+  the first effective CAA record set. The search is bounded and never queries
+  the DNS root.
+- `DNS email authentication` queries TXT at the target name for SPF and at
+  `_dmarc.<domain>` for DMARC.
+
+`PASS` means the limited DNS observation completed without a current finding.
+`WARNING` means a conservative configuration or posture finding was recorded.
+`ERROR` means a timeout, nameserver failure, malformed response, query limit,
+or another operational condition prevented a complete conclusion.
+
+CAA finding categories mean:
+
+- `LW-DNS-001` is informational: no effective CAA policy was observed. This
+  reduces explicit control over certificate issuance but does not prove that
+  an unauthorized certificate exists.
+- `LW-DNS-002` indicates that an unknown CAA property has the issuer-critical
+  flag. Some compliant certificate authorities may refuse issuance if they do
+  not support that property.
+- A valid CAA policy, including an intentional `issue ";"` denial policy, does
+  not produce a finding solely because of its policy choice.
+
+SPF and DMARC finding categories mean:
+
+- `LW-DNS-003` and `LW-DNS-005` are informational observations for missing SPF
+  or DMARC. LotusWatch does not assume that a website domain sends email, and
+  missing records do not prove that the domain is currently spoofable.
+- `LW-DNS-004` reports multiple SPF records because SPF selection can fail
+  permanently when more than one version 1 record exists.
+- `LW-DNS-006` reports DMARC `p=none` as a monitoring policy, not as a confirmed
+  vulnerability.
+- `LW-DNS-007` reports a missing, duplicate, or unsupported DMARC `p` value.
+  Valid `p=quarantine` and `p=reject` choices do not produce findings solely
+  because of their enforcement level.
+
+LotusWatch does not validate DNSSEC, discover DKIM selectors, follow SPF
+`include` mechanisms, apply the SPF ten-lookup limit, determine an
+organizational domain from the Public Suffix List, or test real email. A DNS
+`ERROR` is kept separate from a configuration finding because resolver and
+network failures do not establish a target weakness.
+
 ## Scan Summary
 
-Each scan records the redirect, TLS, and header check results. The terminal
-summary distinguishes recorded checks from checks that completed far enough to
-produce a conclusion, then reports finding counts by severity. LotusWatch does
-not calculate an overall risk score.
+Each scan records five groups: redirect, TLS, headers, CAA, and email DNS
+authentication. The terminal summary distinguishes recorded checks from checks
+that completed far enough to produce a conclusion, then reports finding counts
+by severity. LotusWatch does not calculate an overall risk score.
 
 ## Development
 
@@ -231,13 +283,16 @@ ruff check .
 pytest
 ```
 
-Tests for network behavior use mocked HTTP responses and do not depend on
-public websites.
+Tests for network behavior use mocked HTTP and DNS responses and do not depend
+on public websites or public DNS resolvers.
 
 ## Project Structure
 
 ```text
 lotuswatch/
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml
 |-- docs/
 |   `-- scope.md
 |-- examples/
@@ -245,6 +300,9 @@ lotuswatch/
 |-- src/
 |   `-- lotuswatch/
 |       |-- checks/
+|       |   |-- caa.py
+|       |   |-- dns.py
+|       |   |-- email_dns.py
 |       |   |-- headers.py
 |       |   |-- redirects.py
 |       |   `-- tls.py
@@ -270,10 +328,10 @@ lotuswatch/
 
 ## Scope and Authorized Use
 
-The current version makes a small number of ordinary HTTP requests and one TLS
-connection to inspect redirect behavior, the certificate, and selected
-response headers. Use it at a low frequency and only against public endpoints
-that you are permitted to access.
+The current version makes a small number of ordinary HTTP requests, one TLS
+connection, and bounded CAA and TXT queries through the system recursive
+resolver. Use it at a low frequency and only against public endpoints and DNS
+names that you are permitted to inspect.
 
 Do not use LotusWatch to bypass authentication, evade protective controls,
 perform denial-of-service testing, test credentials, or exploit a system
@@ -291,11 +349,17 @@ the detailed technical scope.
   certificate-chain deployment details.
 - Security-header inspection does not evaluate full policy correctness or
   prove that a missing control is exploitable.
+- CAA inspection does not validate DNSSEC, correlate Certificate Transparency
+  logs, or prove that certificate mis-issuance occurred.
+- SPF inspection identifies version 1 records but does not evaluate mechanisms,
+  recursive includes, alignment, or DNS lookup limits.
+- DMARC inspection checks the exact `_dmarc` name and selected `p` syntax but
+  does not discover organizational-domain policy, DKIM, or real message behavior.
 - LotusWatch inspects one selected HTTPS response and does not crawl the site.
 - Domain ownership is not verified automatically.
 - JSON reports can contain target URLs, redirect destinations, certificate
-  metadata, selected header values, diagnostics, and finding evidence. Review
-  them before sharing or committing them.
+  metadata, selected header values, DNS CAA and TXT records, diagnostics, and
+  finding evidence. Review them before sharing or committing them.
 
 ## Roadmap
 
@@ -308,7 +372,10 @@ the detailed technical scope.
 - [x] TLS certificate inspection and expiration findings
 - [x] Selected HTTP security-header checks and findings
 - [x] Consolidated console and JSON scan output
-- [ ] DNS security checks
+- [x] GitHub Actions quality checks on Python 3.12, 3.13, and 3.14
+- [x] Bounded DNS query foundation
+- [x] CAA checks and findings
+- [x] SPF and DMARC checks and findings
 - [ ] Scheduled monitoring
 - [ ] Email and Telegram alerts
 - [ ] Web dashboard
