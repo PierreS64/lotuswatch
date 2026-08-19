@@ -2,7 +2,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from typer.testing import CliRunner
+from rich.text import Text
+from typer.testing import CliRunner, Result
 
 import lotuswatch.cli
 from lotuswatch.checks import (
@@ -17,6 +18,12 @@ from lotuswatch.checks import (
 from lotuswatch.cli import app
 
 runner = CliRunner()
+
+
+def plain_output(result: Result) -> str:
+    """Return combined CLI output without terminal styling sequences."""
+
+    return Text.from_ansi(result.stdout + result.stderr).plain
 
 
 def successful_redirect_result() -> RedirectCheckResult:
@@ -113,9 +120,10 @@ def stub_successful_checks(monkeypatch) -> None:
 
 def test_help_command() -> None:
     result = runner.invoke(app, ["--help"])
+    output = plain_output(result)
 
     assert result.exit_code == 0
-    assert "Monitor websites" in result.stdout
+    assert "Monitor websites" in output
 
 
 def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None:
@@ -144,29 +152,24 @@ def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None
     monkeypatch.setattr(lotuswatch.cli, "check_security_headers", header_check)
 
     result = runner.invoke(app, ["scan", "EXAMPLE.COM"])
+    output = plain_output(result)
 
     assert result.exit_code == 0
     assert calls == ["redirect", "tls", "headers"]
     assert received_endpoint == ["https://example.com/"]
-    assert "EXAMPLE.COM" in result.stdout
-    assert "https://example.com/" in result.stdout
-    assert result.stdout.index("HTTP to HTTPS redirect") < result.stdout.index(
-        "TLS certificate"
-    )
-    assert result.stdout.index("TLS certificate") < result.stdout.index(
-        "HTTP security headers"
-    )
-    assert result.stdout.index("HTTP security headers") < result.stdout.index(
-        "Scan summary"
-    )
-    assert "Checks completed: 3/3" in result.stdout
-    assert "Findings: 0" in result.stdout
+    assert "EXAMPLE.COM" in output
+    assert "https://example.com/" in output
+    assert output.index("HTTP to HTTPS redirect") < output.index("TLS certificate")
+    assert output.index("TLS certificate") < output.index("HTTP security headers")
+    assert output.index("HTTP security headers") < output.index("Scan summary")
+    assert "Checks completed: 3/3" in output
+    assert "Findings: 0" in output
 
 
 def test_scan_rejects_unsupported_scheme() -> None:
     result = runner.invoke(app, ["scan", "ftp://example.com"])
 
-    output = result.stdout + result.stderr
+    output = plain_output(result)
 
     assert result.exit_code == 2
     assert "Only HTTP and HTTPS" in output
@@ -179,7 +182,7 @@ def test_json_format_requires_output() -> None:
         ["scan", "example.com", "--format", "json"],
     )
 
-    output = result.stdout + result.stderr
+    output = plain_output(result)
 
     assert result.exit_code == 2
     assert "--output is required" in output
@@ -193,7 +196,7 @@ def test_output_requires_json_format(tmp_path: Path) -> None:
         ["scan", "example.com", "--output", str(report_path)],
     )
 
-    output = result.stdout + result.stderr
+    output = plain_output(result)
 
     assert result.exit_code == 2
     assert "--output requires --format json" in output
@@ -218,10 +221,11 @@ def test_scan_writes_all_check_results_to_json(
             str(report_path),
         ],
     )
+    output = plain_output(result)
 
     assert result.exit_code == 0
     assert report_path.exists()
-    assert "Report written" in result.stdout
+    assert "Report written" in output
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
 
@@ -280,12 +284,13 @@ def test_controlled_errors_do_not_stop_independent_checks(monkeypatch) -> None:
     monkeypatch.setattr(lotuswatch.cli, "check_security_headers", header_check)
 
     result = runner.invoke(app, ["scan", "example.com"])
+    output = plain_output(result)
 
     assert result.exit_code == 0
     assert calls == ["redirect", "tls", "headers"]
-    assert result.stdout.count("ERROR") == 3
-    assert "Checks completed: 0/3" in result.stdout
-    assert "Traceback" not in result.stdout + result.stderr
+    assert output.count("ERROR") == 3
+    assert "Checks completed: 0/3" in output
+    assert "Traceback" not in output
 
 
 def test_json_report_collects_multiple_findings_and_summary_counts(
@@ -328,6 +333,7 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
             str(report_path),
         ],
     )
+    output = plain_output(result)
 
     assert result.exit_code == 0
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -346,7 +352,7 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
         "LW-HEADER-006",
         "LW-HEADER-007",
     ]
-    assert "Severity: critical 0, high 0, medium 5, low 2, info 1" in result.stdout
+    assert "Severity: critical 0, high 0, medium 5, low 2, info 1" in output
 
 
 def test_scan_does_not_overwrite_existing_report(
@@ -369,7 +375,7 @@ def test_scan_does_not_overwrite_existing_report(
         ],
     )
 
-    output = result.stdout + result.stderr
+    output = plain_output(result)
 
     assert result.exit_code == 2
     assert "already exists" in output
