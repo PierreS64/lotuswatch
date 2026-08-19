@@ -27,6 +27,12 @@ The current codebase supports:
 - Certificate expiration and verification findings
 - Inspection of six selected HTTP security headers
 - Contextual HSTS, CSP, MIME-sniffing, referrer, permissions, and framing findings
+- Bounded CAA and TXT queries through the system-configured recursive resolver
+- Effective CAA lookup from the target hostname toward the DNS root
+- Conservative CAA policy and issuer-critical property findings
+- SPF version 1 record identification at the target DNS name
+- DMARC record and `p` policy inspection at `_dmarc.<domain>`
+- Conservative missing, duplicate, monitoring, and invalid email DNS findings
 - Independent continuation after controlled check errors when safe
 - Consolidated console sections and severity totals
 - Multi-check JSON reports
@@ -35,6 +41,7 @@ The current codebase supports:
 - Versioned UTF-8 JSON reports
 - UTC report timestamps
 - Protection against accidental report overwrite
+- GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
 ## Planned Beyond the Current Alpha
 
@@ -43,7 +50,10 @@ The following capabilities are not implemented yet:
 - TLS protocol and cipher-suite grading
 - Certificate revocation and Certificate Transparency checks
 - Full Content Security Policy analysis
-- DNS security checks
+- DNSSEC validation
+- DKIM selector discovery and validation
+- Full SPF mechanism, include, alignment, and lookup-limit evaluation
+- Organizational-domain and inherited DMARC policy discovery
 - Scheduled monitoring and alerting
 - Historical storage, dashboards, and trend analysis
 
@@ -60,6 +70,9 @@ The following activities are outside the v0.1 scope:
 - Directory or endpoint enumeration
 - WAF, CAPTCHA, or rate-limit evasion
 - Denial-of-service or load testing
+- DNS zone transfers, brute force, subdomain enumeration, or `ANY` queries
+- Custom nameserver probing or automatic DNS-over-HTTPS/TLS/QUIC
+- Sending email, connecting to SMTP, or retrieving DMARC reports
 - Reading, modifying, or deleting private data
 
 ## Current Network Behavior
@@ -78,12 +91,23 @@ For one scan, LotusWatch:
 - Keeps TLS certificate verification enabled for HTTPS requests
 - Clears cookies between requests
 - Limits captured header values to 2048 characters
+- Uses the system-configured recursive DNS resolver
+- Applies a two-second per-attempt DNS timeout and five-second total lifetime
+- Queries CAA from the target hostname toward parent names, with at most 32
+  query names and no DNS root query
+- Queries TXT at the target DNS name for SPF and at `_dmarc.<domain>` for DMARC
+- Supports only explicit CAA and TXT queries
+- Retains at most 50 records and 2048 characters per DNS record value
+- Does not perform `ANY`, `AXFR`, reverse-DNS, wildcard, or enumeration queries
 
-The three check groups run in the order redirect, TLS certificate, then HTTP
-security headers. A controlled error in one group does not stop an independent
-group when continuing is safe.
+The five check groups run in the order redirect, TLS certificate, HTTP security
+headers, CAA, then email DNS authentication. A controlled error in one group
+does not stop an independent group when continuing is safe. A partial or failed
+DNS query remains visible instead of being converted into a missing-control
+finding.
 
-Automated tests use mocked HTTP responses and do not access public websites.
+Automated tests use mocked HTTP and DNS responses and do not access public
+websites or public DNS resolvers.
 
 ## Data Handling
 
@@ -99,6 +123,9 @@ JSON reports can contain:
 - TLS version and cipher observations
 - Certificate subject, issuer, serial number, names, and validity timestamps
 - Selected HTTP security-header values
+- CAA flags, tags, values, effective names, queried names, and TTL observations
+- TXT values observed at the SPF and DMARC query names
+- Parsed SPF record selections and DMARC policy observations
 - Controlled error diagnostics
 - Finding evidence
 
@@ -111,9 +138,10 @@ system.
 ## Authorization Boundary
 
 The implemented checks create traffic comparable to a small number of ordinary
-browser requests plus one TLS handshake. Run LotusWatch at a low frequency
-against public endpoints you are permitted to access, and stop if the service
-rejects or rate-limits the requests.
+browser requests, one TLS handshake, and bounded queries through the configured
+recursive DNS resolver. Run LotusWatch at a low frequency against public
+endpoints and DNS names you are permitted to inspect, and stop if the service
+or resolver rejects or rate-limits the requests.
 
 Any future intrusive capability must require explicit authorization from the
 system owner and additional safeguards appropriate to its risk.
@@ -126,3 +154,10 @@ status, and observed security headers can still contain an unsuitable policy.
 Missing headers describe reduced defense in depth rather than proof of an
 exploitable vulnerability. A LotusWatch result is not proof that a website is
 secure, healthy, or free of vulnerabilities.
+
+Missing CAA, SPF, or DMARC records are posture observations, not proof of
+certificate mis-issuance, email use, or active spoofing. CAA describes current
+issuance policy and is not a relying-party certificate validation mechanism.
+LotusWatch does not infer that a domain sends email merely because it hosts a
+website. Operational DNS errors and truncated results remain incomplete checks
+and do not generate misleading missing-record findings.

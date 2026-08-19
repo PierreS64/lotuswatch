@@ -43,12 +43,17 @@ sample reports:
 - Internal or private URLs
 - Customer data
 - Reports containing confidential redirect destinations or query parameters
+- Reports containing private DNS names, CAA policy, TXT records, SPF data, or
+  DMARC reporting addresses
 
 LotusWatch reports can contain the original target, normalized URL, redirect
 destinations, HTTP status codes, certificate metadata, selected security-header
-values, and controlled error diagnostics. These details can reveal private
-hostnames, query parameters, infrastructure, or security policy. Review
-generated reports before sharing or committing them.
+values, DNS query names, CAA values, TXT records, parsed SPF and DMARC
+observations, and controlled error diagnostics. TXT data can include provider
+identifiers, verification tokens, reporting addresses, or other operational
+metadata. These details can reveal private hostnames, query parameters,
+infrastructure, or security policy. Review generated reports before sharing or
+committing them.
 
 ## Authorized Use
 
@@ -59,8 +64,12 @@ The current redirect and header checks make a small number of streamed HTTP
 requests without retaining response bodies. The TLS check performs one verified
 handshake and inspects the peer certificate. Cookies are cleared between
 redirect requests, and captured header values are limited in length. These
-checks do not attempt exploitation, but you must still run them only against
-public endpoints you are permitted to inspect.
+checks also make bounded CAA and TXT queries through the system-configured
+recursive resolver. DNS record counts, values, diagnostics, and CAA traversal
+are limited; LotusWatch does not perform `ANY`, `AXFR`, reverse-DNS, wildcard,
+or enumeration queries. The checks do not attempt exploitation, but you must
+still run them only against public endpoints and DNS names you are permitted to
+inspect.
 
 Do not use LotusWatch to:
 
@@ -80,5 +89,9 @@ LotusWatch findings may contain false positives or false negatives. A `PASS`
 only applies to the specific check that produced it and must not be interpreted
 as proof that the target is secure. A missing security header describes a
 defense-in-depth weakness and is not proof that the website is exploitable.
-LotusWatch does not perform full TLS configuration analysis, full policy
-analysis, authenticated testing, crawling, or vulnerability exploitation.
+Missing CAA, SPF, or DMARC records do not prove certificate mis-issuance, email
+use, or spoofability. DNS results can also be incomplete because of resolver
+failures, caching, truncation, or the absence of DNSSEC validation. LotusWatch
+does not perform full TLS configuration analysis, full CSP or SPF evaluation,
+DNSSEC or DKIM validation, authenticated testing, crawling, or vulnerability
+exploitation.

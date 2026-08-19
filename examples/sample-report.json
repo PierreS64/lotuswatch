@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0",
-  "lotuswatch_version": "0.1.0-alpha.2",
+  "lotuswatch_version": "0.1.0-alpha.3",
   "target": {
     "input": "demo.example",
     "normalized_url": "https://demo.example/"
   },
-  "scanned_at": "2026-08-18T10:00:00Z",
+  "scanned_at": "2026-08-19T10:00:00Z",
   "summary": {
-    "checks_completed": 3,
-    "findings_total": 3
+    "checks_completed": 5,
+    "findings_total": 4
   },
   "checks": [
     {
@@ -56,7 +56,7 @@
       ],
       "not_before": "2026-06-01T00:00:00Z",
       "not_after": "2026-09-07T10:00:00Z",
-      "days_until_expiry": 20,
+      "days_until_expiry": 19,
       "verification_code": null,
       "error": null,
       "name": "tls_certificate"
@@ -108,6 +108,86 @@
       ],
       "error": null,
       "name": "http_security_headers"
+    },
+    {
+      "completed": true,
+      "status": "policy_found",
+      "hostname": "demo.example",
+      "queried_names": [
+        "demo.example."
+      ],
+      "effective_name": "demo.example.",
+      "records": [
+        {
+          "flags": 0,
+          "tag": "issue",
+          "value": "ca.example",
+          "issuer_critical": false,
+          "known_tag": true,
+          "truncated": false
+        }
+      ],
+      "ttl": 3600,
+      "records_truncated": false,
+      "error": null,
+      "name": "dns_caa"
+    },
+    {
+      "completed": true,
+      "status": "completed",
+      "hostname": "demo.example",
+      "spf_query": {
+        "completed": true,
+        "answered": true,
+        "status": "answer",
+        "query_name": "demo.example.",
+        "record_type": "TXT",
+        "records": [
+          {
+            "value": "v=spf1 -all",
+            "attributes": {},
+            "truncated": false
+          }
+        ],
+        "ttl": 3600,
+        "records_truncated": false,
+        "error": null
+      },
+      "dmarc_query": {
+        "completed": true,
+        "answered": true,
+        "status": "answer",
+        "query_name": "_dmarc.demo.example.",
+        "record_type": "TXT",
+        "records": [
+          {
+            "value": "v=DMARC1; p=none; rua=mailto:dmarc@demo.example",
+            "attributes": {},
+            "truncated": false
+          }
+        ],
+        "ttl": 3600,
+        "records_truncated": false,
+        "error": null
+      },
+      "spf_records": [
+        {
+          "value": "v=spf1 -all",
+          "attributes": {},
+          "truncated": false
+        }
+      ],
+      "dmarc_records": [
+        {
+          "value": "v=DMARC1; p=none; rua=mailto:dmarc@demo.example",
+          "attributes": {},
+          "truncated": false
+        }
+      ],
+      "dmarc_policy": "none",
+      "spf_interpretation_complete": true,
+      "dmarc_interpretation_complete": true,
+      "name": "dns_email_authentication"
     }
   ],
   "findings": [
@@ -120,7 +200,7 @@
         "hostname": "demo.example",
         "port": 443,
         "status": "passed",
-        "days_until_expiry": 20,
+        "days_until_expiry": 19,
         "not_after": "2026-09-07T10:00:00+00:00"
       },
       "recommendation": "Confirm the renewal schedule and monitor the certificate until the renewed certificate is deployed.",
@@ -153,6 +233,35 @@
       },
       "recommendation": "Select a Referrer-Policy that matches the application's cross-origin navigation and analytics needs, then verify it against expected user flows.",
       "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy"
+    },
+    {
+      "id": "LW-DNS-006",
+      "severity": "info",
+      "title": "DMARC uses a monitoring policy",
+      "description": "The observed DMARC policy is p=none. This requests monitoring without asking receivers to quarantine or reject messages that fail DMARC evaluation.",
+      "evidence": {
+        "hostname": "demo.example",
+        "query_name": "_dmarc.demo.example.",
+        "query_status": "answer",
+        "observed_records": [
+          {
+            "value": "v=DMARC1; p=none; rua=mailto:dmarc@demo.example",
+            "attributes": {},
+            "truncated": false
+          }
+        ],
+        "dmarc_records": [
+          {
+            "value": "v=DMARC1; p=none; rua=mailto:dmarc@demo.example",
+            "attributes": {},
+            "truncated": false
+          }
+        ],
+        "records_truncated": false,
+        "dmarc_policy": "none"
+      },
+      "recommendation": "Review DMARC reports and confirm that every legitimate sender aligns correctly. Increase enforcement gradually only when the domain owner is ready for the delivery impact.",
+      "reference": "https://www.rfc-editor.org/rfc/rfc7489.html"
     }
   ]
 }
