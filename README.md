@@ -27,6 +27,11 @@ security configuration and presents the results in a clear, structured form.
 - Display separate check results and a severity summary in the terminal.
 - Export versioned UTF-8 JSON reports.
 - Protect existing report files from accidental overwrite.
+- Load existing reports as bounded, untrusted local input.
+- Compare baseline and current reports without making network requests.
+- Classify findings as added, resolved, changed, or unchanged.
+- Generate stable, versioned finding fingerprints for comparison identity.
+- Provide opt-in severity thresholds for CI/CD exit policies.
 - Verify formatting, linting, and tests on Python 3.12, 3.13, and 3.14 in CI.
 
 ## Requirements
@@ -89,6 +94,12 @@ Display help for the scan command:
 lotuswatch scan --help
 ```
 
+Display help for the comparison command:
+
+```bash
+lotuswatch compare --help
+```
+
 ### Run a console scan
 
 ```bash
@@ -123,7 +134,71 @@ LotusWatch refuses to overwrite an existing report. Choose a new output path
 or move the previous report before running the command again.
 
 See [`examples/sample-report.json`](examples/sample-report.json) for a safe,
-synthetic example using the reserved `demo.example` domain.
+synthetic scan example using the reserved `demo.example` domain.
+
+### Compare two scan reports
+
+Pass the older report first as the baseline and the newer report second as the
+current report:
+
+```bash
+lotuswatch compare examples/baseline-report.json examples/current-report.json
+```
+
+Both reports must use a supported scan schema and represent the same canonical
+target. Comparison reads local JSON only; it does not run a new scan or make
+website or DNS requests.
+
+Generate a deterministic JSON comparison report:
+
+```bash
+lotuswatch compare examples/baseline-report.json examples/current-report.json \
+  --format json \
+  --output comparison.json
+```
+
+The four comparison states are:
+
+- `added`: present only in the current report.
+- `resolved`: present only in the baseline report.
+- `changed`: present in both reports with the same identity but different
+  serialized finding content.
+- `unchanged`: present in both reports with identical serialized content.
+
+LotusWatch identifies the same finding category on the same normalized target
+with a fingerprint such as `lwfp:v1:sha256:...`. Severity, evidence, and
+descriptive text are excluded from that identity so their changes can be
+reported as `changed`. A fingerprint is a stable identifier, not anonymization,
+and it is not a digital signature or proof that a report is authentic.
+
+Safe synthetic inputs and expected output are available in
+[`examples/baseline-report.json`](examples/baseline-report.json),
+[`examples/current-report.json`](examples/current-report.json), and
+[`examples/comparison-report.json`](examples/comparison-report.json).
+
+### Use severity policies in CI/CD
+
+Commands keep their normal exit behavior unless `--fail-on` is explicitly
+selected. This scan fails the chosen policy when a `medium` or higher finding
+is generated:
+
+```bash
+lotuswatch scan example.com --fail-on medium
+```
+
+For comparison, only added findings and current snapshots of changed findings
+are evaluated. Resolved and unchanged findings do not trigger the policy:
+
+```bash
+lotuswatch compare baseline.json current.json --fail-on medium
+```
+
+Exit code `0` means the command completed without meeting the selected policy
+or no policy was selected. Exit code `1` means an explicit severity policy was
+met. Exit code `2` means command usage, input, compatibility, comparison, or
+output validation failed. A policy exit is not an operational failure, and
+finding severity is not a complete risk score. See [`docs/ci.md`](docs/ci.md)
+for PowerShell, POSIX, and JSON-output examples.
 
 ## Interpreting Redirect Results
 
@@ -294,8 +369,12 @@ lotuswatch/
 |   `-- workflows/
 |       `-- ci.yml
 |-- docs/
+|   |-- ci.md
 |   `-- scope.md
 |-- examples/
+|   |-- baseline-report.json
+|   |-- comparison-report.json
+|   |-- current-report.json
 |   `-- sample-report.json
 |-- src/
 |   `-- lotuswatch/
@@ -307,12 +386,15 @@ lotuswatch/
 |       |   |-- redirects.py
 |       |   `-- tls.py
 |       |-- models/
+|       |   |-- comparison.py
 |       |   |-- finding.py
+|       |   |-- fingerprint.py
 |       |   `-- report.py
 |       |-- reporters/
 |       |   `-- json.py
 |       |-- cli.py
 |       |-- exceptions.py
+|       |-- policy.py
 |       `-- target.py
 |-- tests/
 |   |-- checks/
@@ -328,10 +410,11 @@ lotuswatch/
 
 ## Scope and Authorized Use
 
-The current version makes a small number of ordinary HTTP requests, one TLS
+The scan command makes a small number of ordinary HTTP requests, one TLS
 connection, and bounded CAA and TXT queries through the system recursive
 resolver. Use it at a low frequency and only against public endpoints and DNS
-names that you are permitted to inspect.
+names that you are permitted to inspect. The compare command reads two local
+reports and performs no network requests.
 
 Do not use LotusWatch to bypass authentication, evade protective controls,
 perform denial-of-service testing, test credentials, or exploit a system
@@ -357,9 +440,18 @@ the detailed technical scope.
   does not discover organizational-domain policy, DKIM, or real message behavior.
 - LotusWatch inspects one selected HTTPS response and does not crawl the site.
 - Domain ownership is not verified automatically.
+- Report comparison detects changes in LotusWatch findings, not every change
+  in the target, its checks, or its infrastructure.
+- Finding fingerprints can be guessed from predictable target and finding
+  values; they neither anonymize data nor authenticate reports.
+- Comparison requires supported reports for the same canonical target and does
+  not verify report provenance, integrity, or chronological order.
+- Severity thresholds are user-selected automation policies, not an overall
+  security or business-risk assessment.
 - JSON reports can contain target URLs, redirect destinations, certificate
   metadata, selected header values, DNS CAA and TXT records, diagnostics, and
-  finding evidence. Review them before sharing or committing them.
+  finding evidence. Comparison reports can contain finding snapshots from both
+  inputs. Review all reports before sharing or committing them.
 
 ## Roadmap
 
@@ -376,6 +468,11 @@ the detailed technical scope.
 - [x] Bounded DNS query foundation
 - [x] CAA checks and findings
 - [x] SPF and DMARC checks and findings
+- [x] Safe local scan report loading
+- [x] Stable finding fingerprints
+- [x] Baseline and current report comparison
+- [x] Console and JSON comparison output
+- [x] Opt-in CI/CD severity exit policies
 - [ ] Scheduled monitoring
 - [ ] Email and Telegram alerts
 - [ ] Web dashboard

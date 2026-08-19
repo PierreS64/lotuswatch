@@ -1,0 +1,71 @@
+{
+  "checks": [
+    {
+      "final_url": "https://demo.example/",
+      "name": "http_security_headers",
+      "passed": true,
+      "status": "completed",
+      "status_code": 204
+    },
+    {
+      "completed": true,
+      "hostname": "demo.example",
+      "name": "dns_caa",
+      "status": "no_policy"
+    }
+  ],
+  "findings": [
+    {
+      "description": "The response does not define a Permissions-Policy header. This is a defense-in-depth observation and does not prove exploitability.",
+      "evidence": {
+        "final_url": "https://demo.example/",
+        "permissions_policy": null,
+        "status_code": 200
+      },
+      "id": "LW-HEADER-006",
+      "recommendation": "Select and test a Permissions Policy that matches the browser capabilities required by the application.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
+      "severity": "info",
+      "title": "Permissions Policy is missing"
+    },
+    {
+      "description": "The response does not provide a Content-Security-Policy header. This removes a browser defense-in-depth control but does not prove exploitability.",
+      "evidence": {
+        "content_security_policy": null,
+        "final_url": "https://demo.example/",
+        "status_code": 204
+      },
+      "id": "LW-HEADER-003",
+      "recommendation": "Design and test a Content Security Policy based on the resources the application actually requires.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy",
+      "severity": "medium",
+      "title": "Content Security Policy is missing"
+    },
+    {
+      "description": "No effective CAA record set was observed. This reduces explicit certificate-issuance control but does not prove mis-issuance.",
+      "evidence": {
+        "hostname": "demo.example",
+        "queried_names": [
+          "demo.example.",
+          "example."
+        ]
+      },
+      "id": "LW-DNS-001",
+      "recommendation": "Consider publishing a CAA policy that lists the certificate authorities permitted to issue for the domain.",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8659.html",
+      "severity": "info",
+      "title": "No effective CAA policy was found"
+    }
+  ],
+  "lotuswatch_version": "0.1.0-alpha.4",
+  "scanned_at": "2026-08-19T13:00:00Z",
+  "schema_version": "1.0",
+  "summary": {
+    "checks_completed": 2,
+    "findings_total": 3
+  },
+  "target": {
+    "input": "https://demo.example/",
+    "normalized_url": "https://demo.example/"
+  }
+}

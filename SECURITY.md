@@ -45,6 +45,8 @@ sample reports:
 - Reports containing confidential redirect destinations or query parameters
 - Reports containing private DNS names, CAA policy, TXT records, SPF data, or
   DMARC reporting addresses
+- Baseline, current, or comparison reports containing private findings or
+  historical infrastructure details
 
 LotusWatch reports can contain the original target, normalized URL, redirect
 destinations, HTTP status codes, certificate metadata, selected security-header
@@ -54,6 +56,12 @@ identifiers, verification tokens, reporting addresses, or other operational
 metadata. These details can reveal private hostnames, query parameters,
 infrastructure, or security policy. Review generated reports before sharing or
 committing them.
+
+Comparison reports can preserve complete baseline and current finding
+snapshots. Resolved findings may therefore remain present in comparison output
+after they disappear from the current scan. Treat both source reports and the
+derived comparison as sensitive. Finding fingerprints do not anonymize target
+identity and do not authenticate or sign report contents.
 
 ## Authorized Use
 
@@ -70,6 +78,11 @@ are limited; LotusWatch does not perform `ANY`, `AXFR`, reverse-DNS, wildcard,
 or enumeration queries. The checks do not attempt exploitation, but you must
 still run them only against public endpoints and DNS names you are permitted to
 inspect.
+
+The comparison command reads only the two local report paths supplied by the
+user and performs no website or DNS requests. It bounds and validates those
+files, but it does not establish who created them, whether they were modified,
+or whether the baseline is genuinely older than the current report.
 
 Do not use LotusWatch to:
 
@@ -95,3 +108,7 @@ failures, caching, truncation, or the absence of DNSSEC validation. LotusWatch
 does not perform full TLS configuration analysis, full CSP or SPF evaluation,
 DNSSEC or DKIM validation, authenticated testing, crawling, or vulnerability
 exploitation.
+
+Severity-based exit policies are opt-in automation decisions. Exit code `1`
+means the selected threshold matched a finding; it does not mean LotusWatch
+crashed, prove exploitability, or provide a complete security risk score.
