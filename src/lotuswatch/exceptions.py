@@ -36,3 +36,19 @@ class ReportAlreadyExistsError(ReportError):
 
 class ReportWriteError(ReportError):
     """Raised when a report cannot be written."""
+
+
+class ComparisonError(LotusWatchError):
+    """Base exception for scan report comparison errors."""
+
+
+class ComparisonInputError(ComparisonError):
+    """Raised when a comparison input is invalid."""
+
+
+class ComparisonTargetMismatchError(ComparisonInputError):
+    """Raised when reports represent different normalized targets."""
+
+
+class DuplicateFindingFingerprintError(ComparisonInputError):
+    """Raised when one report contains a duplicate finding identity."""
