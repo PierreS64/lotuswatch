@@ -26,6 +26,7 @@ from lotuswatch.checks import (
     TLSStatus,
 )
 from lotuswatch.cli import app
+from lotuswatch.models import Finding, Severity
 
 runner = CliRunner()
 
@@ -228,6 +229,27 @@ def stub_successful_checks(monkeypatch) -> None:
     )
 
 
+def stub_scan_finding(
+    monkeypatch,
+    severity: Severity,
+) -> Finding:
+    stub_successful_checks(monkeypatch)
+    finding = Finding(
+        id="LW-HTTP-001",
+        severity=severity,
+        title="Synthetic policy finding",
+        description="A synthetic finding used for CLI policy tests.",
+        evidence={"status": 200},
+        recommendation="Review the synthetic finding.",
+    )
+    monkeypatch.setattr(
+        lotuswatch.cli,
+        "redirect_result_to_finding",
+        lambda result: finding,
+    )
+    return finding
+
+
 def test_help_command() -> None:
     result = runner.invoke(app, ["--help"])
     output = plain_output(result)
@@ -287,6 +309,90 @@ def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None
     assert "Checks recorded: 5" in output
     assert "Checks completed: 5/5" in output
     assert "Findings: 0" in output
+
+
+def test_scan_help_documents_fail_on() -> None:
+    result = runner.invoke(app, ["scan", "--help"])
+    output = plain_output(result)
+
+    assert result.exit_code == 0
+    assert "--fail-on" in output
+    assert "Return exit code 1" in output
+
+
+def test_scan_without_policy_keeps_default_exit_zero(monkeypatch) -> None:
+    stub_scan_finding(monkeypatch, Severity.CRITICAL)
+
+    result = runner.invoke(app, ["scan", "example.com"])
+
+    assert result.exit_code == 0
+
+
+def test_scan_policy_returns_one_after_console_rendering(monkeypatch) -> None:
+    stub_scan_finding(monkeypatch, Severity.MEDIUM)
+
+    result = runner.invoke(
+        app,
+        ["scan", "example.com", "--fail-on", "medium"],
+    )
+    output = plain_output(result)
+
+    assert result.exit_code == 1
+    assert "Scan summary" in output
+    assert "Findings: 1" in output
+    assert "POLICY FAIL" in output
+    assert "medium or higher" in output
+    assert output.index("Scan summary") < output.index("POLICY FAIL")
+
+
+def test_scan_policy_ignores_finding_below_threshold(monkeypatch) -> None:
+    stub_scan_finding(monkeypatch, Severity.LOW)
+
+    result = runner.invoke(
+        app,
+        ["scan", "example.com", "--fail-on", "medium"],
+    )
+
+    assert result.exit_code == 0
+
+
+def test_scan_policy_writes_json_before_exit_one(monkeypatch, tmp_path: Path) -> None:
+    stub_scan_finding(monkeypatch, Severity.HIGH)
+    report_path = tmp_path / "report.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "example.com",
+            "--format",
+            "json",
+            "--output",
+            str(report_path),
+            "--fail-on",
+            "high",
+        ],
+    )
+    output = plain_output(result)
+
+    assert result.exit_code == 1
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["summary"]["findings_total"] == 1
+    assert "Report written" in output
+    assert output.index("Report written") < output.index("POLICY FAIL")
+
+
+def test_scan_rejects_invalid_policy_threshold() -> None:
+    result = runner.invoke(
+        app,
+        ["scan", "example.com", "--fail-on", "urgent"],
+    )
+    output = plain_output(result)
+
+    assert result.exit_code == 2
+    assert "Invalid value for '--fail-on'" in output
+    assert "Traceback" not in output
 
 
 def test_scan_rejects_unsupported_scheme() -> None:
@@ -446,6 +552,17 @@ def test_controlled_errors_do_not_stop_independent_checks(monkeypatch) -> None:
     assert output.count("ERROR") == 5
     assert "Checks completed: 0/5" in output
     assert "Traceback" not in output
+
+    policy_result = runner.invoke(
+        app,
+        ["scan", "example.com", "--fail-on", "info"],
+    )
+    policy_output = plain_output(policy_result)
+
+    assert policy_result.exit_code == 0
+    assert policy_output.count("ERROR") == 5
+    assert "Checks completed: 0/5" in policy_output
+    assert "POLICY FAIL" not in policy_output
 
 
 def test_json_report_collects_multiple_findings_and_summary_counts(

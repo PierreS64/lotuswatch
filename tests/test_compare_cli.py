@@ -69,6 +69,9 @@ def test_compare_help_explains_baseline_and_current_order() -> None:
     assert "older baseline scan report" in output
     assert "newer current scan report" in output
     assert "without running a new scan" in output
+    assert "--fail-on" in output
+    assert "added or changed current" in output
+    assert "finding has this severity" in output
 
 
 def test_compare_renders_all_change_sections(tmp_path: Path) -> None:
@@ -255,6 +258,114 @@ def test_compare_writes_valid_json_report(tmp_path: Path) -> None:
 
     assert comparison.summary.added == 1
     assert comparison.normalized_target == "https://example.com/"
+
+
+def test_compare_policy_returns_one_after_console_rendering(tmp_path: Path) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    current_path = tmp_path / "current.json"
+    write_scan_report(baseline_path)
+    write_scan_report(
+        current_path,
+        [make_finding("LW-TEST-001", severity=Severity.MEDIUM)],
+        scanned_at=CURRENT_TIME,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            str(baseline_path),
+            str(current_path),
+            "--fail-on",
+            "medium",
+        ],
+    )
+    output = plain_output(result)
+
+    assert result.exit_code == 1
+    assert "Comparison summary" in output
+    assert "Added findings (1)" in output
+    assert "POLICY FAIL" in output
+    assert output.index("Added findings (1)") < output.index("POLICY FAIL")
+
+
+def test_compare_policy_writes_json_before_exit_one(tmp_path: Path) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    current_path = tmp_path / "current.json"
+    output_path = tmp_path / "comparison.json"
+    write_scan_report(baseline_path)
+    write_scan_report(
+        current_path,
+        [make_finding("LW-TEST-001", severity=Severity.HIGH)],
+        scanned_at=CURRENT_TIME,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            str(baseline_path),
+            str(current_path),
+            "--format",
+            "json",
+            "--output",
+            str(output_path),
+            "--fail-on",
+            "high",
+        ],
+    )
+    output = plain_output(result)
+
+    assert result.exit_code == 1
+    assert output_path.exists()
+    comparison = ComparisonReport.model_validate_json(
+        output_path.read_text(encoding="utf-8")
+    )
+    assert comparison.summary.added == 1
+    assert "Comparison report written" in output
+    assert output.index("Comparison report written") < output.index("POLICY FAIL")
+
+
+def test_compare_policy_ignores_added_finding_below_threshold(tmp_path: Path) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    current_path = tmp_path / "current.json"
+    write_scan_report(baseline_path)
+    write_scan_report(
+        current_path,
+        [make_finding("LW-TEST-001", severity=Severity.LOW)],
+        scanned_at=CURRENT_TIME,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            str(baseline_path),
+            str(current_path),
+            "--fail-on",
+            "medium",
+        ],
+    )
+
+    assert result.exit_code == 0
+
+
+def test_compare_rejects_invalid_policy_threshold() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "compare",
+            "baseline.json",
+            "current.json",
+            "--fail-on",
+            "urgent",
+        ],
+    )
+    output = plain_output(result)
+
+    assert result.exit_code == 2
+    assert "Invalid value for '--fail-on'" in output
+    assert "Traceback" not in output
 
 
 def test_compare_does_not_overwrite_existing_output(tmp_path: Path) -> None:
