@@ -47,6 +47,10 @@ from lotuswatch.models import (
     Severity,
     compare_reports,
 )
+from lotuswatch.policy import (
+    comparison_findings_meet_threshold,
+    scan_findings_meet_threshold,
+)
 from lotuswatch.reporters import (
     load_json_report,
     write_json_comparison_report,
@@ -96,6 +100,13 @@ def scan(
             "--output",
             "-o",
             help="Path for the generated report.",
+        ),
+    ] = None,
+    fail_on: Annotated[
+        Severity | None,
+        typer.Option(
+            "--fail-on",
+            help=("Return exit code 1 when any finding has this severity or higher."),
         ),
     ] = None,
 ) -> None:
@@ -204,6 +215,9 @@ def scan(
 
         console.print(f"\n[green]Report written:[/green] {report_path}")
 
+    if fail_on is not None and scan_findings_meet_threshold(findings, fail_on):
+        _raise_policy_exit(fail_on, comparison=False)
+
 
 @app.command()
 def compare(
@@ -225,6 +239,16 @@ def compare(
             "--output",
             "-o",
             help="Path for the generated comparison report.",
+        ),
+    ] = None,
+    fail_on: Annotated[
+        Severity | None,
+        typer.Option(
+            "--fail-on",
+            help=(
+                "Return exit code 1 when an added or changed current finding "
+                "has this severity or higher."
+            ),
         ),
     ] = None,
 ) -> None:
@@ -255,23 +279,39 @@ def compare(
 
     if output_format is OutputFormat.CONSOLE:
         _render_comparison(comparison)
-        return
+    else:
+        assert output is not None
 
-    assert output is not None
+        try:
+            report_path = write_json_comparison_report(comparison, output)
+        except ReportError as exc:
+            raise typer.BadParameter(
+                str(exc),
+                param_hint="--output",
+            ) from exc
 
-    try:
-        report_path = write_json_comparison_report(comparison, output)
-    except ReportError as exc:
-        raise typer.BadParameter(
-            str(exc),
-            param_hint="--output",
-        ) from exc
+        console.print(f"[green]Comparison report written:[/green] {report_path}")
+        console.print(
+            "[yellow]Review this file before sharing; it may contain "
+            "sensitive report data.[/yellow]"
+        )
 
-    console.print(f"[green]Comparison report written:[/green] {report_path}")
+    if fail_on is not None and comparison_findings_meet_threshold(
+        comparison,
+        fail_on,
+    ):
+        _raise_policy_exit(fail_on, comparison=True)
+
+
+def _raise_policy_exit(threshold: Severity, *, comparison: bool) -> None:
+    """Report a matched opt-in policy and return its documented exit code."""
+
+    subject = "Added or changed finding" if comparison else "Finding"
     console.print(
-        "[yellow]Review this file before sharing; it may contain "
-        "sensitive report data.[/yellow]"
+        f"\n[red]POLICY FAIL[/red] {subject} severity threshold met: "
+        f"{threshold.value} or higher. Returning exit code 1."
     )
+    raise typer.Exit(code=1)
 
 
 def _load_comparison_input(report_path: Path, param_hint: str) -> ScanReport:
