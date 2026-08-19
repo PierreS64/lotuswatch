@@ -1,3 +1,10 @@
+from lotuswatch.checks.dns import (
+    DNSQueryResult,
+    DNSQueryStatus,
+    DNSRecordType,
+    DNSRecordValue,
+    query_dns_records,
+)
 from lotuswatch.checks.headers import (
     HeaderObservation,
     SecurityHeaderCheckResult,
@@ -19,6 +26,10 @@ from lotuswatch.checks.tls import (
 )
 
 __all__ = [
+    "DNSQueryResult",
+    "DNSQueryStatus",
+    "DNSRecordType",
+    "DNSRecordValue",
     "HeaderObservation",
     "RedirectCheckResult",
     "RedirectStatus",
@@ -29,6 +40,7 @@ __all__ = [
     "check_http_to_https_redirect",
     "check_security_headers",
     "check_tls_certificate",
+    "query_dns_records",
     "redirect_result_to_finding",
     "security_header_result_to_findings",
     "tls_result_to_findings",
