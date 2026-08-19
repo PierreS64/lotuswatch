@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from stat import S_ISREG
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from lotuswatch.exceptions import (
     ReportAlreadyExistsError,
@@ -13,7 +13,7 @@ from lotuswatch.exceptions import (
     ReportValidationError,
     ReportWriteError,
 )
-from lotuswatch.models import ScanReport
+from lotuswatch.models import ComparisonReport, ScanReport
 
 MAX_REPORT_SIZE_BYTES = 5 * 1024 * 1024
 SUPPORTED_SCAN_REPORT_SCHEMA_VERSIONS = frozenset({"1.0"})
@@ -127,8 +127,13 @@ def load_json_report(report_path: Path) -> ScanReport:
         ) from exc
 
 
-def write_json_report(report: ScanReport, output: Path) -> Path:
-    """Write a scan report as UTF-8 JSON without overwriting files."""
+def _write_json_model(
+    model: BaseModel,
+    output: Path,
+    *,
+    sort_keys: bool,
+) -> Path:
+    """Write a Pydantic model as UTF-8 JSON without overwriting files."""
 
     output = Path(output)
 
@@ -141,10 +146,11 @@ def write_json_report(report: ScanReport, output: Path) -> Path:
     try:
         with output.open("x", encoding="utf-8", newline="\n") as report_file:
             json.dump(
-                report.model_dump(mode="json"),
+                model.model_dump(mode="json"),
                 report_file,
                 ensure_ascii=False,
                 indent=2,
+                sort_keys=sort_keys,
             )
             report_file.write("\n")
     except FileExistsError as exc:
@@ -153,3 +159,18 @@ def write_json_report(report: ScanReport, output: Path) -> Path:
         raise ReportWriteError(f"Unable to write report: {output}") from exc
 
     return output
+
+
+def write_json_report(report: ScanReport, output: Path) -> Path:
+    """Write a scan report as UTF-8 JSON without overwriting files."""
+
+    return _write_json_model(report, output, sort_keys=False)
+
+
+def write_json_comparison_report(
+    report: ComparisonReport,
+    output: Path,
+) -> Path:
+    """Write a deterministic comparison report without overwriting files."""
+
+    return _write_json_model(report, output, sort_keys=True)

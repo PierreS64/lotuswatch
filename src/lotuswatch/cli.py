@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -31,14 +33,30 @@ from lotuswatch.checks import (
     security_header_result_to_findings,
     tls_result_to_findings,
 )
-from lotuswatch.exceptions import ReportError, TargetValidationError
-from lotuswatch.models import Finding, ScanReport, Severity
-from lotuswatch.reporters import write_json_report
+from lotuswatch.exceptions import (
+    ComparisonError,
+    ReportError,
+    TargetValidationError,
+)
+from lotuswatch.models import (
+    ComparisonReport,
+    ComparisonStatus,
+    Finding,
+    FindingComparison,
+    ScanReport,
+    Severity,
+    compare_reports,
+)
+from lotuswatch.reporters import (
+    load_json_report,
+    write_json_comparison_report,
+    write_json_report,
+)
 from lotuswatch.target import normalize_target
 
 
 class OutputFormat(StrEnum):
-    """Output formats supported by the scan command."""
+    """Output formats supported by LotusWatch commands."""
 
     CONSOLE = "console"
     JSON = "json"
@@ -54,6 +72,7 @@ console = Console()
 
 MAX_CONSOLE_CAA_RECORDS = 5
 MAX_CONSOLE_DNS_VALUE_LENGTH = 120
+MAX_CONSOLE_COMPARISON_VALUE_LENGTH = 240
 
 
 @app.callback()
@@ -184,6 +203,218 @@ def scan(
             ) from exc
 
         console.print(f"\n[green]Report written:[/green] {report_path}")
+
+
+@app.command()
+def compare(
+    baseline: Annotated[
+        Path,
+        typer.Argument(help="Path to the older baseline scan report."),
+    ],
+    current: Annotated[
+        Path,
+        typer.Argument(help="Path to the newer current scan report."),
+    ],
+    output_format: Annotated[
+        OutputFormat,
+        typer.Option("--format", help="Output format."),
+    ] = OutputFormat.CONSOLE,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Path for the generated comparison report.",
+        ),
+    ] = None,
+) -> None:
+    """Compare two LotusWatch scan reports without running a new scan."""
+
+    if output_format is OutputFormat.JSON and output is None:
+        raise typer.BadParameter(
+            "--output is required when --format json is used.",
+            param_hint="--output",
+        )
+
+    if output_format is OutputFormat.CONSOLE and output is not None:
+        raise typer.BadParameter(
+            "--output requires --format json.",
+            param_hint="--output",
+        )
+
+    baseline_report = _load_comparison_input(baseline, "baseline")
+    current_report = _load_comparison_input(current, "current")
+
+    try:
+        comparison = compare_reports(baseline_report, current_report)
+    except ComparisonError as exc:
+        raise typer.BadParameter(
+            str(exc),
+            param_hint="baseline/current",
+        ) from exc
+
+    if output_format is OutputFormat.CONSOLE:
+        _render_comparison(comparison)
+        return
+
+    assert output is not None
+
+    try:
+        report_path = write_json_comparison_report(comparison, output)
+    except ReportError as exc:
+        raise typer.BadParameter(
+            str(exc),
+            param_hint="--output",
+        ) from exc
+
+    console.print(f"[green]Comparison report written:[/green] {report_path}")
+    console.print(
+        "[yellow]Review this file before sharing; it may contain "
+        "sensitive report data.[/yellow]"
+    )
+
+
+def _load_comparison_input(report_path: Path, param_hint: str) -> ScanReport:
+    """Load one CLI comparison input with a parameter-specific error."""
+
+    try:
+        return load_json_report(report_path)
+    except ReportError as exc:
+        raise typer.BadParameter(str(exc), param_hint=param_hint) from exc
+
+
+def _render_comparison(comparison: ComparisonReport) -> None:
+    """Render a concise comparison without listing unchanged findings."""
+
+    console.print("[bold green]LotusWatch[/bold green] report comparison")
+    console.print(f"Target: [cyan]{escape(comparison.normalized_target)}[/cyan]")
+    console.print(
+        "Baseline: "
+        f"{_display_timestamp(comparison.baseline.scanned_at)} "
+        f"(LotusWatch {escape(comparison.baseline.lotuswatch_version)})"
+    )
+    console.print(
+        "Current: "
+        f"{_display_timestamp(comparison.current.scanned_at)} "
+        f"(LotusWatch {escape(comparison.current.lotuswatch_version)})"
+    )
+
+    console.print("\n[bold]Comparison summary[/bold]")
+    console.print(f"Added: {comparison.summary.added}")
+    console.print(f"Resolved: {comparison.summary.resolved}")
+    console.print(f"Changed: {comparison.summary.changed}")
+    console.print(f"Unchanged: {comparison.summary.unchanged}")
+
+    changed_total = (
+        comparison.summary.added
+        + comparison.summary.resolved
+        + comparison.summary.changed
+    )
+    if changed_total == 0:
+        console.print("[green]PASS[/green] No finding changes detected.")
+    else:
+        console.print(
+            f"[yellow]CHANGES[/yellow] {changed_total} finding change(s) detected."
+        )
+
+    _render_comparison_section(
+        "Added findings",
+        ComparisonStatus.ADDED,
+        comparison.findings,
+    )
+    _render_comparison_section(
+        "Resolved findings",
+        ComparisonStatus.RESOLVED,
+        comparison.findings,
+    )
+    _render_comparison_section(
+        "Changed findings",
+        ComparisonStatus.CHANGED,
+        comparison.findings,
+    )
+
+
+def _render_comparison_section(
+    title: str,
+    status: ComparisonStatus,
+    comparisons: list[FindingComparison],
+) -> None:
+    """Render one change section and omit unchanged finding details."""
+
+    matching = [item for item in comparisons if item.status is status]
+    console.print(f"\n[bold]{title} ({len(matching)})[/bold]")
+
+    if not matching:
+        console.print("None.")
+        return
+
+    for comparison in matching:
+        if status is ComparisonStatus.ADDED:
+            finding = comparison.current_finding
+        else:
+            finding = comparison.baseline_finding
+
+        assert finding is not None
+        console.print(
+            f"- [yellow]{finding.id}[/yellow] "
+            f"({finding.severity.value}) - {escape(finding.title)}"
+        )
+        console.print(f"  Fingerprint: {comparison.fingerprint}")
+
+        if status is ComparisonStatus.CHANGED:
+            _render_changed_finding_fields(comparison)
+
+
+def _render_changed_finding_fields(comparison: FindingComparison) -> None:
+    """Render bounded baseline and current values for changed fields."""
+
+    baseline = comparison.baseline_finding
+    current = comparison.current_finding
+    assert baseline is not None and current is not None
+    baseline_data = baseline.model_dump(mode="json")
+    current_data = current.model_dump(mode="json")
+
+    for field in (
+        "severity",
+        "title",
+        "description",
+        "evidence",
+        "recommendation",
+        "reference",
+    ):
+        if baseline_data[field] == current_data[field]:
+            continue
+
+        label = field.replace("_", " ").title()
+        console.print(
+            f"  {label} baseline: "
+            f"{escape(_comparison_display_value(baseline_data[field]))}"
+        )
+        console.print(
+            f"  {label} current: "
+            f"{escape(_comparison_display_value(current_data[field]))}"
+        )
+
+
+def _comparison_display_value(value: object) -> str:
+    """Serialize and bound one comparison field for console output."""
+
+    serialized = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    if len(serialized) <= MAX_CONSOLE_COMPARISON_VALUE_LENGTH:
+        return serialized
+
+    return f"{serialized[:MAX_CONSOLE_COMPARISON_VALUE_LENGTH]}..."
+
+
+def _display_timestamp(value: datetime) -> str:
+    """Render a UTC model timestamp with the JSON-style Z suffix."""
+
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def _render_redirect_result(
