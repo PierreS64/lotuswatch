@@ -1,3 +1,10 @@
+from lotuswatch.checks.caa import (
+    CAACheckResult,
+    CAACheckStatus,
+    CAARecord,
+    caa_result_to_findings,
+    check_caa_records,
+)
 from lotuswatch.checks.dns import (
     DNSQueryResult,
     DNSQueryStatus,
@@ -26,6 +33,9 @@ from lotuswatch.checks.tls import (
 )
 
 __all__ = [
+    "CAACheckResult",
+    "CAACheckStatus",
+    "CAARecord",
     "DNSQueryResult",
     "DNSQueryStatus",
     "DNSRecordType",
@@ -37,6 +47,8 @@ __all__ = [
     "SecurityHeaderStatus",
     "TLSCheckResult",
     "TLSStatus",
+    "caa_result_to_findings",
+    "check_caa_records",
     "check_http_to_https_redirect",
     "check_security_headers",
     "check_tls_certificate",
