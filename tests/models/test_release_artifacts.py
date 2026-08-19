@@ -7,9 +7,20 @@ import pytest
 
 from lotuswatch import __version__
 from lotuswatch.checks import CAACheckResult, EmailDNSCheckResult
-from lotuswatch.models import ScanReport
+from lotuswatch.models import (
+    ComparisonReport,
+    ComparisonStatus,
+    ScanReport,
+    compare_reports,
+)
 
 PROJECT_ROOT = Path(__file__).parents[2]
+EXAMPLES_ROOT = PROJECT_ROOT / "examples"
+SCAN_EXAMPLES = (
+    "sample-report.json",
+    "baseline-report.json",
+    "current-report.json",
+)
 
 
 def test_version_metadata_matches_package_version() -> None:
@@ -18,11 +29,22 @@ def test_version_metadata_matches_package_version() -> None:
     )
 
     assert pyproject["project"]["version"] == __version__
-    assert __version__ == "0.1.0-alpha.3"
+    assert __version__ == "0.1.0-alpha.4"
+
+
+@pytest.mark.parametrize("filename", SCAN_EXAMPLES)
+def test_synthetic_scan_reports_validate(filename: str) -> None:
+    report_path = EXAMPLES_ROOT / filename
+    report = ScanReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+
+    assert report.lotuswatch_version == __version__
+    assert report.summary.checks_completed == len(report.checks)
+    assert report.summary.findings_total == len(report.findings)
+    assert report.target.normalized_url == "https://demo.example/"
 
 
 def test_sample_report_validates_and_matches_summary() -> None:
-    sample_path = PROJECT_ROOT / "examples" / "sample-report.json"
+    sample_path = EXAMPLES_ROOT / "sample-report.json"
     sample_data = json.loads(sample_path.read_text(encoding="utf-8"))
 
     report = ScanReport.model_validate(sample_data)
@@ -55,9 +77,52 @@ def test_sample_report_validates_and_matches_summary() -> None:
     assert "demo.example" in serialized
 
 
+def test_synthetic_comparison_matches_source_reports() -> None:
+    baseline = ScanReport.model_validate_json(
+        (EXAMPLES_ROOT / "baseline-report.json").read_text(encoding="utf-8")
+    )
+    current = ScanReport.model_validate_json(
+        (EXAMPLES_ROOT / "current-report.json").read_text(encoding="utf-8")
+    )
+    comparison_path = EXAMPLES_ROOT / "comparison-report.json"
+    comparison = ComparisonReport.model_validate_json(
+        comparison_path.read_text(encoding="utf-8")
+    )
+
+    regenerated = compare_reports(
+        baseline,
+        current,
+        compared_at=comparison.compared_at,
+    )
+
+    assert comparison == regenerated
+    assert comparison.baseline.lotuswatch_version == __version__
+    assert comparison.current.lotuswatch_version == __version__
+    assert comparison.summary.model_dump() == {
+        "added": 1,
+        "resolved": 1,
+        "changed": 1,
+        "unchanged": 1,
+    }
+    assert {entry.status for entry in comparison.findings} == set(ComparisonStatus)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    (*SCAN_EXAMPLES, "comparison-report.json"),
+)
+def test_synthetic_artifacts_contain_no_private_target_data(filename: str) -> None:
+    serialized = (EXAMPLES_ROOT / filename).read_text(encoding="utf-8").casefold()
+
+    assert "demo.example" in serialized
+    assert "password" not in serialized
+    assert "api_key" not in serialized
+    assert "access_token" not in serialized
+
+
 @pytest.mark.parametrize(
     "relative_path",
-    ["README.md", "SECURITY.md", "docs/scope.md"],
+    ["README.md", "SECURITY.md", "docs/ci.md", "docs/scope.md"],
 )
 def test_documentation_links_and_code_fences(relative_path: str) -> None:
     document_path = PROJECT_ROOT / relative_path

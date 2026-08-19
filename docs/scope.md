@@ -41,6 +41,12 @@ The current codebase supports:
 - Versioned UTF-8 JSON reports
 - UTC report timestamps
 - Protection against accidental report overwrite
+- Bounded loading and validation of existing local scan reports
+- Stable, versioned finding fingerprints
+- Same-target baseline and current report comparison
+- Added, resolved, changed, and unchanged finding classification
+- Console and deterministic JSON comparison output
+- Opt-in scan and comparison severity exit policies for CI/CD
 - GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
 ## Planned Beyond the Current Alpha
@@ -56,6 +62,8 @@ The following capabilities are not implemented yet:
 - Organizational-domain and inherited DMARC policy discovery
 - Scheduled monitoring and alerting
 - Historical storage, dashboards, and trend analysis
+- Report signing, provenance verification, or tamper detection
+- Custom policy expressions, allowlists, and finding suppressions
 
 ## Explicitly Excluded
 
@@ -109,6 +117,14 @@ finding.
 Automated tests use mocked HTTP and DNS responses and do not access public
 websites or public DNS resolvers.
 
+The `compare` command does not perform a scan or make a network request. It
+reads two explicitly selected local UTF-8 JSON files, treats them as untrusted
+input, limits each input to 5 MiB, rejects ambiguous JSON and unsupported scan
+schemas, and validates both reports before comparison. The first argument is
+the older baseline and the second is the newer current report. LotusWatch
+requires both reports to represent the same canonical target, but it does not
+authenticate their source or enforce their chronological order.
+
 ## Data Handling
 
 LotusWatch does not intentionally store response bodies, cookies, passwords,
@@ -128,6 +144,18 @@ JSON reports can contain:
 - Parsed SPF record selections and DMARC policy observations
 - Controlled error diagnostics
 - Finding evidence
+
+Comparison reports can repeat baseline and current finding snapshots,
+including their evidence, references, and remediation text. As a result, a
+comparison report may contain sensitive data originating from either input,
+even when one finding is resolved in the current scan. Loading and comparison
+do not modify the source reports.
+
+Finding fingerprints are derived from the normalized target and finding
+identifier. They intentionally exclude severity and other finding content so
+those fields can change while identity remains stable. Fingerprints are not
+anonymization: predictable input can be tested against them. They are also not
+digital signatures and do not prove report integrity, ownership, or origin.
 
 Targets and redirect destinations may include query parameters. Do not place
 secrets in a target URL, and review every generated report before sharing or
@@ -161,3 +189,16 @@ issuance policy and is not a relying-party certificate validation mechanism.
 LotusWatch does not infer that a domain sends email merely because it hosts a
 website. Operational DNS errors and truncated results remain incomplete checks
 and do not generate misleading missing-record findings.
+
+Report comparison classifies a current-only finding as `added`, a
+baseline-only finding as `resolved`, the same identity with different finding
+content as `changed`, and identical content as `unchanged`. It compares
+findings rather than all raw check data, so a zero-change result is not proof
+that the target or every observation stayed identical.
+
+Without `--fail-on`, completed scan and comparison commands return success even
+when findings are present. An explicitly selected severity policy returns exit
+code `1` when its threshold is met; input, usage, compatibility, comparison,
+and output errors return exit code `2`. Comparison policy evaluates only added
+findings and current snapshots of changed findings. A policy exit is distinct
+from an operational failure, and severity is not a complete risk score.

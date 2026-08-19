@@ -1,0 +1,121 @@
+{
+  "baseline": {
+    "lotuswatch_version": "0.1.0-alpha.4",
+    "scan_schema_version": "1.0",
+    "scanned_at": "2026-08-19T12:00:00Z"
+  },
+  "compared_at": "2026-08-19T13:05:00Z",
+  "comparison_schema_version": "1.0",
+  "current": {
+    "lotuswatch_version": "0.1.0-alpha.4",
+    "scan_schema_version": "1.0",
+    "scanned_at": "2026-08-19T13:00:00Z"
+  },
+  "findings": [
+    {
+      "baseline_finding": null,
+      "current_finding": {
+        "description": "No effective CAA record set was observed. This reduces explicit certificate-issuance control but does not prove mis-issuance.",
+        "evidence": {
+          "hostname": "demo.example",
+          "queried_names": [
+            "demo.example.",
+            "example."
+          ]
+        },
+        "id": "LW-DNS-001",
+        "recommendation": "Consider publishing a CAA policy that lists the certificate authorities permitted to issue for the domain.",
+        "reference": "https://www.rfc-editor.org/rfc/rfc8659.html",
+        "severity": "info",
+        "title": "No effective CAA policy was found"
+      },
+      "fingerprint": "lwfp:v1:sha256:f3c1109dc2fd9c2ad501affe11fadd30d68ace27c520194e8028111b0d10c619",
+      "status": "added"
+    },
+    {
+      "baseline_finding": {
+        "description": "The observed DMARC policy is p=none. This requests monitoring without asking receivers to quarantine or reject failing messages.",
+        "evidence": {
+          "dmarc_policy": "none",
+          "hostname": "demo.example",
+          "query_name": "_dmarc.demo.example."
+        },
+        "id": "LW-DNS-006",
+        "recommendation": "Review DMARC reports before gradually increasing enforcement when the domain owner is ready.",
+        "reference": "https://www.rfc-editor.org/rfc/rfc7489.html",
+        "severity": "info",
+        "title": "DMARC uses a monitoring policy"
+      },
+      "current_finding": null,
+      "fingerprint": "lwfp:v1:sha256:51576802673b41b8017772a6a0e5f743c9bfa6aa3f284fe9c4f30e62cdde02ae",
+      "status": "resolved"
+    },
+    {
+      "baseline_finding": {
+        "description": "The response does not provide a Content-Security-Policy header. This removes a browser defense-in-depth control but does not prove exploitability.",
+        "evidence": {
+          "content_security_policy": null,
+          "final_url": "https://demo.example/",
+          "status_code": 200
+        },
+        "id": "LW-HEADER-003",
+        "recommendation": "Design and test a Content Security Policy based on the resources the application actually requires.",
+        "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy",
+        "severity": "medium",
+        "title": "Content Security Policy is missing"
+      },
+      "current_finding": {
+        "description": "The response does not provide a Content-Security-Policy header. This removes a browser defense-in-depth control but does not prove exploitability.",
+        "evidence": {
+          "content_security_policy": null,
+          "final_url": "https://demo.example/",
+          "status_code": 204
+        },
+        "id": "LW-HEADER-003",
+        "recommendation": "Design and test a Content Security Policy based on the resources the application actually requires.",
+        "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy",
+        "severity": "medium",
+        "title": "Content Security Policy is missing"
+      },
+      "fingerprint": "lwfp:v1:sha256:d37fb181845a5a714f3f590774ceaf139b4421cb05a6c670996aa4b95f671236",
+      "status": "changed"
+    },
+    {
+      "baseline_finding": {
+        "description": "The response does not define a Permissions-Policy header. This is a defense-in-depth observation and does not prove exploitability.",
+        "evidence": {
+          "final_url": "https://demo.example/",
+          "permissions_policy": null,
+          "status_code": 200
+        },
+        "id": "LW-HEADER-006",
+        "recommendation": "Select and test a Permissions Policy that matches the browser capabilities required by the application.",
+        "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
+        "severity": "info",
+        "title": "Permissions Policy is missing"
+      },
+      "current_finding": {
+        "description": "The response does not define a Permissions-Policy header. This is a defense-in-depth observation and does not prove exploitability.",
+        "evidence": {
+          "final_url": "https://demo.example/",
+          "permissions_policy": null,
+          "status_code": 200
+        },
+        "id": "LW-HEADER-006",
+        "recommendation": "Select and test a Permissions Policy that matches the browser capabilities required by the application.",
+        "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy",
+        "severity": "info",
+        "title": "Permissions Policy is missing"
+      },
+      "fingerprint": "lwfp:v1:sha256:b6fe4b91dbd7aa0945e8dc421d84c67d17e6608cea572bdd50fecb3052c75cf5",
+      "status": "unchanged"
+    }
+  ],
+  "normalized_target": "https://demo.example/",
+  "summary": {
+    "added": 1,
+    "changed": 1,
+    "resolved": 1,
+    "unchanged": 1
+  }
+}
