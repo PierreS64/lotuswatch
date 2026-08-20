@@ -1,12 +1,17 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from rich.text import Text
 from typer.testing import CliRunner, Result
 
 import lotuswatch.cli
+import lotuswatch.monitoring
+import lotuswatch.monitoring_cli
 from lotuswatch.cli import app
+from lotuswatch.exceptions import StoreWriteError
 from lotuswatch.models import ScanReport
 from lotuswatch.storage import SQLiteMonitoringStore, StoredScanRun
 
@@ -64,6 +69,7 @@ def test_monitor_help_lists_target_management_commands() -> None:
     assert result.exit_code == 0
     assert "add" in output
     assert "list" in output
+    assert "run" in output
     assert "enable" in output
     assert "disable" in output
 
@@ -284,4 +290,155 @@ def test_incompatible_database_error_does_not_leak_contents(tmp_path: Path) -> N
     assert result.exit_code == 2
     assert "not a supported SQLite database" in output
     assert "private-database-content" not in output
+    assert "Traceback" not in output
+
+
+def test_monitor_run_missing_or_disabled_profile_never_scans(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+
+    def unexpected_scan(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("missing or disabled profiles must not be scanned")
+
+    monkeypatch.setattr(lotuswatch.monitoring, "execute_scan", unexpected_scan)
+
+    missing = runner.invoke(
+        app,
+        ["monitor", "run", "missing", *database_arguments(database_path)],
+    )
+    assert invoke_add(database_path, "production", "example.com").exit_code == 0
+    disabled = runner.invoke(
+        app,
+        ["monitor", "disable", "production", *database_arguments(database_path)],
+    )
+    disabled_run = runner.invoke(
+        app,
+        ["monitor", "run", "production", *database_arguments(database_path)],
+    )
+
+    assert missing.exit_code == 2
+    assert "profile was not found" in compact_output(missing)
+    assert disabled.exit_code == 0
+    assert disabled_run.exit_code == 2
+    assert "profile is disabled" in compact_output(disabled_run)
+
+
+def test_monitor_run_renders_initial_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+    run_id = uuid4()
+    synthetic_result = SimpleNamespace(
+        profile=SimpleNamespace(
+            name="production",
+            normalized_url="https://example.com/",
+        ),
+        scan=SimpleNamespace(
+            completed_checks=4,
+            recorded_checks=5,
+            findings=[object(), object()],
+        ),
+        stored_run=SimpleNamespace(metadata=SimpleNamespace(id=run_id)),
+        baseline_run=None,
+        comparison=None,
+        skipped_baseline_candidates=0,
+    )
+    monkeypatch.setattr(
+        lotuswatch.monitoring_cli,
+        "execute_monitoring_run",
+        lambda *_args, **_kwargs: synthetic_result,
+    )
+
+    result = runner.invoke(
+        app,
+        ["monitor", "run", "production", *database_arguments(database_path)],
+    )
+    output = compact_output(result)
+
+    assert result.exit_code == 0
+    assert "monitoring run stored" in output
+    assert str(run_id) in output
+    assert "Scan status: INCOMPLETE (4/5 checks completed)" in output
+    assert "Findings: 2" in output
+    assert "Initial baseline" in output
+    assert "no comparison is available yet" in output
+
+
+def test_monitor_run_renders_previous_run_comparison(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+    baseline_id = uuid4()
+    synthetic_result = SimpleNamespace(
+        profile=SimpleNamespace(
+            name="production",
+            normalized_url="https://example.com/",
+        ),
+        scan=SimpleNamespace(
+            completed_checks=5,
+            recorded_checks=5,
+            findings=[object()] * 4,
+        ),
+        stored_run=SimpleNamespace(metadata=SimpleNamespace(id=uuid4())),
+        baseline_run=SimpleNamespace(metadata=SimpleNamespace(id=baseline_id)),
+        comparison=SimpleNamespace(
+            summary=SimpleNamespace(
+                added=1,
+                resolved=1,
+                changed=1,
+                unchanged=1,
+            )
+        ),
+        skipped_baseline_candidates=2,
+    )
+    monkeypatch.setattr(
+        lotuswatch.monitoring_cli,
+        "execute_monitoring_run",
+        lambda *_args, **_kwargs: synthetic_result,
+    )
+
+    result = runner.invoke(
+        app,
+        ["monitor", "run", "production", *database_arguments(database_path)],
+    )
+    output = compact_output(result)
+
+    assert result.exit_code == 0
+    assert "Scan status: COMPLETE" in output
+    assert "Skipped earlier incompatible or non-earlier run candidates: 2" in output
+    assert "Comparison with previous run" in output
+    assert f"Baseline run ID: {baseline_id}" in output
+    assert "Added: 1" in output
+    assert "Resolved: 1" in output
+    assert "Changed: 1" in output
+    assert "Unchanged: 1" in output
+
+
+def test_monitor_run_storage_failure_is_controlled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+
+    def fail_storage(*_args: object, **_kwargs: object) -> None:
+        raise StoreWriteError("Unable to store monitoring run.")
+
+    monkeypatch.setattr(
+        lotuswatch.monitoring_cli,
+        "execute_monitoring_run",
+        fail_storage,
+    )
+
+    result = runner.invoke(
+        app,
+        ["monitor", "run", "production", *database_arguments(database_path)],
+    )
+    output = compact_output(result)
+
+    assert result.exit_code == 2
+    assert "Unable to store monitoring run" in output
     assert "Traceback" not in output
