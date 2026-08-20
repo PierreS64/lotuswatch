@@ -47,6 +47,8 @@ sample reports:
   DMARC reporting addresses
 - Baseline, current, or comparison reports containing private findings or
   historical infrastructure details
+- Monitoring databases, SQLite journals, WAL or shared-memory files, backups,
+  scheduler logs, or exported historical reports
 
 LotusWatch reports can contain the original target, normalized URL, redirect
 destinations, HTTP status codes, certificate metadata, selected security-header
@@ -62,6 +64,14 @@ snapshots. Resolved findings may therefore remain present in comparison output
 after they disappear from the current scan. Treat both source reports and the
 derived comparison as sensitive. Finding fingerprints do not anonymize target
 identity and do not authenticate or sign report contents.
+
+Local monitoring stores complete validated reports and historical target
+metadata in SQLite. LotusWatch does not encrypt, authenticate, or sign the
+database or its backups. Restrict filesystem access to database files and their
+journal, WAL, and shared-memory companions. Stop scheduled jobs before making a
+consistent backup, protect scheduler output, and review stored reports before
+exporting, sharing, or committing them. Retention is explicit and does not
+replace a backup and data-handling policy.
 
 ## Authorized Use
 
@@ -83,6 +93,12 @@ The comparison command reads only the two local report paths supplied by the
 user and performs no website or DNS requests. It bounds and validates those
 files, but it does not establish who created them, whether they were modified,
 or whether the baseline is genuinely older than the current report.
+
+Each `monitor run` performs the same bounded network checks as a normal scan.
+Registration, listing, history, show, enable, disable, and prune operations use
+only the selected local database. LotusWatch does not install a daemon or
+coordinate overlapping scheduler jobs; configure recurring runs at a safe
+frequency and use one process per database.
 
 Do not use LotusWatch to:
 
@@ -112,3 +128,10 @@ exploitation.
 Severity-based exit policies are opt-in automation decisions. Exit code `1`
 means the selected threshold matched a finding; it does not mean LotusWatch
 crashed, prove exploitability, or provide a complete security risk score.
+
+SQLite locking uses a bounded busy timeout and is not a substitute for
+multi-process coordination. Monitoring history can contain false positives,
+false negatives, controlled operational errors, and stale infrastructure
+details. Stored scan completion, finding counts, comparison changes, and
+successful persistence are separate states and none proves that a target is
+secure or exploitable.
