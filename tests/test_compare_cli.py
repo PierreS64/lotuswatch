@@ -5,7 +5,7 @@ from pathlib import Path
 from rich.text import Text
 from typer.testing import CliRunner, Result
 
-import lotuswatch.cli
+import lotuswatch.scanner
 from lotuswatch.cli import app
 from lotuswatch.models import (
     ComparisonReport,
@@ -181,11 +181,13 @@ def test_compare_does_not_run_scan_checks(monkeypatch, tmp_path: Path) -> None:
     def unexpected_scan(*args: object, **kwargs: object) -> None:
         raise AssertionError("Comparison attempted to start a network scan.")
 
-    monkeypatch.setattr(lotuswatch.cli, "check_http_to_https_redirect", unexpected_scan)
-    monkeypatch.setattr(lotuswatch.cli, "check_tls_certificate", unexpected_scan)
-    monkeypatch.setattr(lotuswatch.cli, "check_security_headers", unexpected_scan)
-    monkeypatch.setattr(lotuswatch.cli, "check_caa_records", unexpected_scan)
-    monkeypatch.setattr(lotuswatch.cli, "check_email_dns_records", unexpected_scan)
+    monkeypatch.setattr(
+        lotuswatch.scanner, "check_http_to_https_redirect", unexpected_scan
+    )
+    monkeypatch.setattr(lotuswatch.scanner, "check_tls_certificate", unexpected_scan)
+    monkeypatch.setattr(lotuswatch.scanner, "check_security_headers", unexpected_scan)
+    monkeypatch.setattr(lotuswatch.scanner, "check_caa_records", unexpected_scan)
+    monkeypatch.setattr(lotuswatch.scanner, "check_email_dns_records", unexpected_scan)
 
     result = runner.invoke(app, ["compare", str(baseline_path), str(current_path)])
 
