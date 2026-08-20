@@ -104,3 +104,7 @@ class MonitoringTargetCompatibilityError(MonitoringRunError):
 
 class MonitoringComparisonError(MonitoringRunError):
     """Raised when a monitored run cannot be compared safely."""
+
+
+class MonitoringRetentionError(MonitoringRunError):
+    """Raised when a monitoring retention operation is unsafe."""

@@ -1,7 +1,7 @@
 import json
 import os
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from stat import S_ISREG
@@ -32,6 +32,7 @@ from lotuswatch.storage.paths import resolve_monitoring_database_path
 MONITORING_SCHEMA_VERSION = "1"
 MAX_STORED_REPORT_SIZE_BYTES = 5 * 1024 * 1024
 DEFAULT_BUSY_TIMEOUT_SECONDS = 5.0
+MAX_DELETE_BATCH_SIZE = 400
 _SQLITE_HEADER = b"SQLite format 3\x00"
 _REQUIRED_TABLE_COLUMNS = {
     "schema_metadata": {"key", "value"},
@@ -321,6 +322,112 @@ class SQLiteMonitoringStore:
             raise StoreReadError("Unable to load latest scan run.") from exc
 
         return None if row is None else self._stored_run_from_row(row)
+
+    def count_scan_runs(self, target_id: UUID) -> int:
+        """Count stored runs for one target."""
+
+        try:
+            with self._connection() as connection:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS run_count FROM scan_runs WHERE target_id = ?",
+                    (str(target_id),),
+                ).fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise StoreReadError("Unable to count scan history.") from exc
+
+        if row is None or not isinstance(row["run_count"], int):
+            raise StoreReadError("Stored scan history count is invalid.")
+        return int(row["run_count"])
+
+    def preview_scan_run_prune(
+        self,
+        target_id: UUID,
+        *,
+        keep: int,
+    ) -> list[UUID]:
+        """Return runs outside the newest retained set without deleting them."""
+
+        keep = self._validated_keep_count(keep)
+        try:
+            with self._connection() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT id
+                    FROM scan_runs
+                    WHERE target_id = ?
+                    ORDER BY scanned_at DESC, stored_at DESC, id ASC
+                    LIMIT -1 OFFSET ?
+                    """,
+                    (str(target_id), keep),
+                ).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise StoreReadError("Unable to preview scan history retention.") from exc
+
+        try:
+            return [UUID(str(row["id"])) for row in rows]
+        except (TypeError, ValueError) as exc:
+            raise StoreReadError("Stored scan-run identifier is invalid.") from exc
+
+    def delete_scan_runs(
+        self,
+        target_id: UUID,
+        run_ids: Sequence[UUID],
+        *,
+        expected_total: int | None = None,
+    ) -> int:
+        """Delete exactly selected target runs in one guarded transaction."""
+
+        selected_ids = self._validated_run_ids(run_ids)
+        if expected_total is not None:
+            expected_total = self._validated_history_total(expected_total)
+        if not selected_ids:
+            return 0
+
+        try:
+            with self._connection() as connection, self._transaction(connection):
+                rows = connection.execute(
+                    "SELECT id FROM scan_runs WHERE target_id = ?",
+                    (str(target_id),),
+                ).fetchall()
+                existing_ids = {str(row["id"]) for row in rows}
+                selected_values = {str(run_id) for run_id in selected_ids}
+
+                if expected_total is not None and len(existing_ids) != expected_total:
+                    raise StoreConflictError(
+                        "Scan history changed after the retention preview."
+                    )
+                if not selected_values.issubset(existing_ids):
+                    raise StoreConflictError(
+                        "Scan history changed after the retention preview."
+                    )
+                if len(existing_ids) - len(selected_values) < 1:
+                    raise StoreValidationError(
+                        "Retention must preserve at least one scan run."
+                    )
+
+                deleted = 0
+                for offset in range(0, len(selected_ids), MAX_DELETE_BATCH_SIZE):
+                    batch = selected_ids[offset : offset + MAX_DELETE_BATCH_SIZE]
+                    placeholders = ",".join("?" for _ in batch)
+                    cursor = connection.execute(
+                        f"""
+                        DELETE FROM scan_runs
+                        WHERE target_id = ? AND id IN ({placeholders})
+                        """,
+                        (str(target_id), *(str(run_id) for run_id in batch)),
+                    )
+                    deleted += cursor.rowcount
+
+                if deleted != len(selected_ids):
+                    raise StoreConflictError(
+                        "Scan history changed while retention was applied."
+                    )
+        except (StoreConflictError, StoreValidationError):
+            raise
+        except sqlite3.DatabaseError as exc:
+            raise StoreWriteError("Unable to prune scan history.") from exc
+
+        return deleted
 
     def _prepare_database_file(self) -> bool:
         path = self.database_path
@@ -694,6 +801,34 @@ class SQLiteMonitoringStore:
             )
         return limit
 
+    def _validated_keep_count(self, keep: int) -> int:
+        if isinstance(keep, bool) or not isinstance(keep, int) or keep < 1:
+            raise StoreValidationError(
+                "Retention keep count must be a positive integer."
+            )
+        return keep
+
+    def _validated_history_total(self, total: int) -> int:
+        if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+            raise StoreValidationError("Expected scan history total is invalid.")
+        return total
+
+    def _validated_run_ids(self, run_ids: Sequence[UUID]) -> list[UUID]:
+        if isinstance(run_ids, (str, bytes)) or not isinstance(run_ids, Sequence):
+            raise StoreValidationError("Retention run identifiers must be a sequence.")
+
+        validated: list[UUID] = []
+        for run_id in run_ids:
+            if not isinstance(run_id, UUID):
+                raise StoreValidationError("Retention run identifier is invalid.")
+            validated.append(run_id)
+
+        if len(set(validated)) != len(validated):
+            raise StoreValidationError(
+                "Retention run identifiers must not contain duplicates."
+            )
+        return validated
+
     def _scan_run_select_sql(self, suffix: str) -> str:
         return f"""
             SELECT id, target_id, report_schema_version,
@@ -706,6 +841,7 @@ class SQLiteMonitoringStore:
 
 __all__ = [
     "DEFAULT_BUSY_TIMEOUT_SECONDS",
+    "MAX_DELETE_BATCH_SIZE",
     "MAX_STORED_REPORT_SIZE_BYTES",
     "MONITORING_SCHEMA_VERSION",
     "SQLiteMonitoringStore",

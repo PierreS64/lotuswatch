@@ -13,6 +13,7 @@ from lotuswatch.storage.paths import (
 )
 from lotuswatch.storage.sqlite import (
     DEFAULT_BUSY_TIMEOUT_SECONDS,
+    MAX_DELETE_BATCH_SIZE,
     MAX_STORED_REPORT_SIZE_BYTES,
     MONITORING_SCHEMA_VERSION,
     SQLiteMonitoringStore,
@@ -22,6 +23,7 @@ __all__ = [
     "DEFAULT_BUSY_TIMEOUT_SECONDS",
     "DEFAULT_DATABASE_FILENAME",
     "DEFAULT_QUERY_LIMIT",
+    "MAX_DELETE_BATCH_SIZE",
     "MAX_QUERY_LIMIT",
     "MAX_STORED_REPORT_SIZE_BYTES",
     "MONITORING_SCHEMA_VERSION",
