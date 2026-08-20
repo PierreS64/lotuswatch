@@ -29,6 +29,7 @@ from lotuswatch.exceptions import (
     MonitoringComparisonError,
     MonitoringProfileDisabledError,
     MonitoringProfileNotFoundError,
+    MonitoringRetentionError,
     MonitoringTargetCompatibilityError,
     StoreConflictError,
 )
@@ -38,7 +39,12 @@ from lotuswatch.models import (
     ScanReport,
     Severity,
 )
-from lotuswatch.monitoring import execute_monitoring_run
+from lotuswatch.monitoring import (
+    apply_monitoring_retention,
+    execute_monitoring_run,
+    load_monitoring_history,
+    plan_monitoring_retention,
+)
 from lotuswatch.scanner import ScanExecutionResult, execute_scan
 from lotuswatch.storage import (
     MonitoredTarget,
@@ -558,3 +564,106 @@ def test_comparison_failure_occurs_before_current_run_is_stored(
         )
 
     assert len(store.list_scan_runs(profile.id)) == 1
+
+
+def test_history_loads_validated_runs_in_newest_first_order(tmp_path: Path) -> None:
+    store = initialized_store(tmp_path)
+    profile = add_profile(store)
+    first = save_run(
+        store,
+        profile,
+        scanned_at=datetime(2026, 8, 20, 8, 0, tzinfo=UTC),
+    )
+    second = save_run(
+        store,
+        profile,
+        scanned_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+    )
+
+    history = load_monitoring_history(store, profile.name, limit=2)
+
+    assert history.profile == profile
+    assert history.runs == (second, first)
+    assert all(
+        ScanReport.model_validate(run.report.model_dump()) == run.report
+        for run in history.runs
+    )
+
+
+def test_retention_plan_is_dry_until_applied_and_preserves_profile(
+    tmp_path: Path,
+) -> None:
+    store = initialized_store(tmp_path)
+    profile = add_profile(store)
+    runs = [
+        save_run(
+            store,
+            profile,
+            scanned_at=datetime(2026, 8, 20, 8 + index, 0, tzinfo=UTC),
+        )
+        for index in range(4)
+    ]
+
+    plan = plan_monitoring_retention(store, profile.name, keep=2)
+
+    assert plan.total_runs == 4
+    assert plan.remaining_runs == 2
+    assert plan.run_ids == (runs[1].metadata.id, runs[0].metadata.id)
+    assert store.count_scan_runs(profile.id) == 4
+
+    assert apply_monitoring_retention(store, plan) == 2
+    assert store.count_scan_runs(profile.id) == 2
+    assert store.get_target(profile.id) == profile
+    assert store.list_scan_runs(profile.id) == [
+        runs[3].metadata,
+        runs[2].metadata,
+    ]
+
+
+def test_retention_rejects_invalid_keep_and_changed_profile(tmp_path: Path) -> None:
+    store = initialized_store(tmp_path)
+    profile = add_profile(store)
+    save_run(
+        store,
+        profile,
+        scanned_at=datetime(2026, 8, 20, 8, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(MonitoringRetentionError):
+        plan_monitoring_retention(store, profile.name, keep=0)
+
+    plan = plan_monitoring_retention(store, profile.name, keep=1)
+    store.set_target_enabled(
+        profile.id,
+        enabled=False,
+        updated_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(MonitoringRetentionError):
+        apply_monitoring_retention(store, plan)
+
+    assert store.count_scan_runs(profile.id) == 1
+
+
+def test_retention_apply_rejects_history_changed_after_preview(
+    tmp_path: Path,
+) -> None:
+    store = initialized_store(tmp_path)
+    profile = add_profile(store)
+    for hour in (8, 9, 10):
+        save_run(
+            store,
+            profile,
+            scanned_at=datetime(2026, 8, 20, hour, 0, tzinfo=UTC),
+        )
+    plan = plan_monitoring_retention(store, profile.name, keep=1)
+    save_run(
+        store,
+        profile,
+        scanned_at=datetime(2026, 8, 20, 11, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(StoreConflictError):
+        apply_monitoring_retention(store, plan)
+
+    assert store.count_scan_runs(profile.id) == 4

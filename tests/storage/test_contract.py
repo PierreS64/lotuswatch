@@ -222,3 +222,51 @@ def test_duplicate_or_orphan_scan_run_is_rejected_atomically(
         store.save_scan_run(orphan)
 
     assert store.list_scan_runs(target.id) == [run.metadata]
+
+
+def test_retention_preview_and_delete_preserve_newest_runs_and_profile(
+    store: MonitoringStore,
+) -> None:
+    target = make_target()
+    store.create_target(target)
+    start = datetime(2026, 8, 20, 9, 0, tzinfo=UTC)
+    runs = [
+        make_run(target.id, scanned_at=start + timedelta(hours=index))
+        for index in range(4)
+    ]
+    for run in runs:
+        store.save_scan_run(run)
+
+    preview = store.preview_scan_run_prune(target.id, keep=2)
+
+    assert preview == [runs[1].metadata.id, runs[0].metadata.id]
+    assert store.count_scan_runs(target.id) == 4
+    assert store.delete_scan_runs(target.id, preview) == 2
+    assert store.list_scan_runs(target.id) == [
+        runs[3].metadata,
+        runs[2].metadata,
+    ]
+    assert store.get_target(target.id) == target
+
+
+def test_retention_rejects_unsafe_or_changed_selection(
+    store: MonitoringStore,
+) -> None:
+    target = make_target()
+    store.create_target(target)
+    run = make_run(
+        target.id,
+        scanned_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+    )
+    store.save_scan_run(run)
+
+    with pytest.raises(StoreValidationError):
+        store.preview_scan_run_prune(target.id, keep=0)
+    with pytest.raises(StoreValidationError):
+        store.delete_scan_runs(target.id, [run.metadata.id])
+    with pytest.raises(StoreValidationError):
+        store.delete_scan_runs(target.id, [run.metadata.id, run.metadata.id])
+    with pytest.raises(StoreConflictError):
+        store.delete_scan_runs(target.id, [uuid4()])
+
+    assert store.get_scan_run(run.metadata.id) == run

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol, Self, runtime_checkable
 from uuid import UUID, uuid4
@@ -175,6 +176,26 @@ class MonitoringStore(Protocol):
 
     def get_latest_scan_run(self, target_id: UUID) -> StoredScanRun | None:
         """Load the newest stored run for one target."""
+
+    def count_scan_runs(self, target_id: UUID) -> int:
+        """Count stored runs for one target."""
+
+    def preview_scan_run_prune(
+        self,
+        target_id: UUID,
+        *,
+        keep: int,
+    ) -> list[UUID]:
+        """Return the deterministic run identifiers eligible for pruning."""
+
+    def delete_scan_runs(
+        self,
+        target_id: UUID,
+        run_ids: Sequence[UUID],
+        *,
+        expected_total: int | None = None,
+    ) -> int:
+        """Delete exactly the selected runs while preserving one run."""
 
 
 __all__ = [

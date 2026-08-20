@@ -122,7 +122,13 @@ def test_synthetic_artifacts_contain_no_private_target_data(filename: str) -> No
 
 @pytest.mark.parametrize(
     "relative_path",
-    ["README.md", "SECURITY.md", "docs/ci.md", "docs/scope.md"],
+    [
+        "README.md",
+        "SECURITY.md",
+        "docs/ci.md",
+        "docs/monitoring.md",
+        "docs/scope.md",
+    ],
 )
 def test_documentation_links_and_code_fences(relative_path: str) -> None:
     document_path = PROJECT_ROOT / relative_path

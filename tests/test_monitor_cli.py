@@ -12,7 +12,7 @@ import lotuswatch.monitoring
 import lotuswatch.monitoring_cli
 from lotuswatch.cli import app
 from lotuswatch.exceptions import StoreWriteError
-from lotuswatch.models import ScanReport
+from lotuswatch.models import Finding, ScanReport, Severity
 from lotuswatch.storage import SQLiteMonitoringStore, StoredScanRun
 
 runner = CliRunner()
@@ -442,3 +442,198 @@ def test_monitor_run_storage_failure_is_controlled(
     assert result.exit_code == 2
     assert "Unable to store monitoring run" in output
     assert "Traceback" not in output
+
+
+def test_monitor_history_is_bounded_newest_first_and_shows_severity(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+    assert invoke_add(database_path, "production", "example.com").exit_code == 0
+    store = open_store(database_path)
+    profile = store.get_target_by_name("production")
+    assert profile is not None
+    older = StoredScanRun.create(
+        target_id=profile.id,
+        report=make_report(
+            scanned_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+        ),
+    )
+    newest_report = ScanReport.create(
+        lotuswatch_version="0.1.0-alpha.4",
+        original_target="example.com",
+        normalized_url="https://example.com/",
+        scanned_at=datetime(2026, 8, 20, 10, 0, tzinfo=UTC),
+        checks=[{"name": "synthetic", "status": "timeout"}],
+        checks_completed=0,
+        findings=[
+            Finding(
+                id="LW-TEST-001",
+                severity=Severity.HIGH,
+                title="Synthetic history finding",
+                description="Synthetic history test.",
+                evidence={"status": "observed"},
+                recommendation="Review the synthetic finding.",
+            )
+        ],
+    )
+    newest = StoredScanRun.create(target_id=profile.id, report=newest_report)
+    store.save_scan_run(older)
+    store.save_scan_run(newest)
+
+    result = runner.invoke(
+        app,
+        [
+            "monitor",
+            "history",
+            "production",
+            *database_arguments(database_path),
+            "--limit",
+            "1",
+        ],
+    )
+    output = compact_output(result)
+
+    assert result.exit_code == 0
+    assert str(newest.metadata.id) in output
+    assert str(older.metadata.id) not in output
+    assert "State: incomplete (0/1 checks)" in output
+    assert "Findings: 1" in output
+    assert "Maximum severity: high" in output
+
+
+def test_monitor_show_console_and_json_export_with_overwrite_protection(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+    assert invoke_add(database_path, "production", "example.com").exit_code == 0
+    store = open_store(database_path)
+    profile = store.get_target_by_name("production")
+    assert profile is not None
+    run = StoredScanRun.create(
+        target_id=profile.id,
+        report=make_report(
+            scanned_at=datetime(2026, 8, 20, 9, 0, tzinfo=UTC),
+        ),
+    )
+    store.save_scan_run(run)
+
+    console_result = runner.invoke(
+        app,
+        [
+            "monitor",
+            "show",
+            str(run.metadata.id),
+            *database_arguments(database_path),
+        ],
+    )
+    output_path = tmp_path / "stored-report.json"
+    json_result = runner.invoke(
+        app,
+        [
+            "monitor",
+            "show",
+            str(run.metadata.id),
+            *database_arguments(database_path),
+            "--format",
+            "json",
+            "--output",
+            str(output_path),
+        ],
+    )
+    overwrite_result = runner.invoke(
+        app,
+        [
+            "monitor",
+            "show",
+            str(run.metadata.id),
+            *database_arguments(database_path),
+            "--format",
+            "json",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert console_result.exit_code == 0
+    assert "sensitive target and finding data" in compact_output(console_result)
+    assert '"schema_version": "1.0"' in plain_output(console_result)
+    assert json_result.exit_code == 0
+    assert ScanReport.model_validate_json(output_path.read_text(encoding="utf-8"))
+    assert overwrite_result.exit_code == 2
+    assert "already exists" in compact_output(overwrite_result)
+
+
+def test_monitor_prune_dry_run_then_apply_deletes_exact_old_runs(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "monitoring.db"
+    assert invoke_add(database_path, "production", "example.com").exit_code == 0
+    store = open_store(database_path)
+    profile = store.get_target_by_name("production")
+    assert profile is not None
+    runs = [
+        StoredScanRun.create(
+            target_id=profile.id,
+            report=make_report(
+                scanned_at=datetime(2026, 8, 20, 8 + index, 0, tzinfo=UTC)
+            ),
+        )
+        for index in range(4)
+    ]
+    for run in runs:
+        store.save_scan_run(run)
+
+    command = [
+        "monitor",
+        "prune",
+        "production",
+        *database_arguments(database_path),
+        "--keep",
+        "2",
+    ]
+    preview = runner.invoke(app, command)
+
+    assert preview.exit_code == 0
+    preview_output = compact_output(preview)
+    assert "DRY RUN" in preview_output
+    assert "No history was deleted" in preview_output
+    assert str(runs[1].metadata.id) in preview_output
+    assert str(runs[0].metadata.id) in preview_output
+    assert store.count_scan_runs(profile.id) == 4
+
+    applied = runner.invoke(app, [*command, "--apply"])
+    remaining_store = open_store(database_path)
+
+    assert applied.exit_code == 0
+    assert "Deleted stored runs: 2" in compact_output(applied)
+    assert remaining_store.count_scan_runs(profile.id) == 2
+    assert remaining_store.get_scan_run(runs[0].metadata.id) is None
+    assert remaining_store.get_scan_run(runs[1].metadata.id) is None
+    assert remaining_store.get_scan_run(runs[2].metadata.id) is not None
+    assert remaining_store.get_scan_run(runs[3].metadata.id) is not None
+    assert remaining_store.get_target(profile.id) == profile
+
+
+def test_monitor_show_and_prune_reject_unsafe_inputs(tmp_path: Path) -> None:
+    database_path = tmp_path / "monitoring.db"
+
+    missing_run = runner.invoke(
+        app,
+        ["monitor", "show", str(uuid4()), *database_arguments(database_path)],
+    )
+    unsafe_keep = runner.invoke(
+        app,
+        [
+            "monitor",
+            "prune",
+            "production",
+            *database_arguments(database_path),
+            "--keep",
+            "0",
+            "--apply",
+        ],
+    )
+
+    assert missing_run.exit_code == 2
+    assert "run was not found" in compact_output(missing_run)
+    assert unsafe_keep.exit_code == 2

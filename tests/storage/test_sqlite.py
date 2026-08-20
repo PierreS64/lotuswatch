@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+import lotuswatch.storage.sqlite as sqlite_storage
 from lotuswatch.exceptions import (
     StoreCompatibilityError,
     StoreConflictError,
@@ -15,6 +16,7 @@ from lotuswatch.exceptions import (
     StoreInitializationError,
     StoreReadError,
     StoreValidationError,
+    StoreWriteError,
 )
 from lotuswatch.models import ScanReport
 from lotuswatch.storage import (
@@ -298,3 +300,41 @@ def test_invalid_busy_timeout_is_rejected(tmp_path: Path, timeout: float) -> Non
             tmp_path / "monitoring.db",
             busy_timeout_seconds=timeout,
         )
+
+
+def test_failed_prune_transaction_rolls_back_all_deletions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = initialized_store(tmp_path)
+    monkeypatch.setattr(sqlite_storage, "MAX_DELETE_BATCH_SIZE", 1)
+    target = store.create_target(make_target())
+    runs = [
+        StoredScanRun.create(
+            target_id=target.id,
+            report=make_report(
+                scanned_at=datetime(2026, 8, 20, 9 + index, 0, tzinfo=UTC)
+            ),
+        )
+        for index in range(3)
+    ]
+    for run in runs:
+        store.save_scan_run(run)
+    selected = store.preview_scan_run_prune(target.id, keep=1)
+
+    with sqlite3.connect(store.database_path) as connection:
+        connection.execute(
+            f"""
+            CREATE TRIGGER reject_selected_prune
+            BEFORE DELETE ON scan_runs
+            WHEN OLD.id = '{selected[-1]}'
+            BEGIN
+                SELECT RAISE(ABORT, 'synthetic prune failure');
+            END
+            """
+        )
+
+    with pytest.raises(StoreWriteError):
+        store.delete_scan_runs(target.id, selected)
+
+    assert store.count_scan_runs(target.id) == 3
