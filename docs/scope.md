@@ -47,6 +47,14 @@ The current codebase supports:
 - Added, resolved, changed, and unchanged finding classification
 - Console and deterministic JSON comparison output
 - Opt-in scan and comparison severity exit policies for CI/CD
+- Backend-neutral monitoring storage contract with a versioned local SQLite
+  implementation
+- Named local target registration, listing, enable, and disable commands
+- On-demand monitored scans with validated report persistence
+- Automatic comparison with the newest earlier compatible stored run
+- Bounded history inspection and stored-report console or JSON export
+- Dry-run retention previews and explicit transactional pruning
+- PowerShell Task Scheduler and POSIX cron integration guidance
 - GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
 ## Planned Beyond the Current Alpha
@@ -60,8 +68,9 @@ The following capabilities are not implemented yet:
 - DKIM selector discovery and validation
 - Full SPF mechanism, include, alignment, and lookup-limit evaluation
 - Organizational-domain and inherited DMARC policy discovery
-- Scheduled monitoring and alerting
-- Historical storage, dashboards, and trend analysis
+- Built-in background daemon installation
+- Alert delivery and notification services
+- Web dashboards and database-backed trend visualization
 - Report signing, provenance verification, or tamper detection
 - Custom policy expressions, allowlists, and finding suppressions
 
@@ -125,6 +134,13 @@ the older baseline and the second is the newer current report. LotusWatch
 requires both reports to represent the same canonical target, but it does not
 authenticate their source or enforce their chronological order.
 
+The `monitor run` command performs the same five bounded check groups as one
+ordinary scan and stores the validated result. Target registration, listing,
+enable, disable, history, show, and prune commands operate only on the selected
+local database and perform no website or DNS request. LotusWatch does not run a
+background daemon; recurring execution is delegated to an operating-system
+scheduler configured by the user.
+
 ## Data Handling
 
 LotusWatch does not intentionally store response bodies, cookies, passwords,
@@ -157,6 +173,19 @@ those fields can change while identity remains stable. Fingerprints are not
 anonymization: predictable input can be tested against them. They are also not
 digital signatures and do not prove report integrity, ownership, or origin.
 
+The monitoring database stores public target profiles, scan timestamps,
+LotusWatch and report schema versions, complete validated scan reports, and
+opaque run identifiers. Stored reports retain the same potentially sensitive
+fields as exported JSON. The database is local SQLite and is not encrypted,
+authenticated, signed, or synchronized by LotusWatch. Database files,
+journals, WAL and shared-memory files, exports, backups, terminal captures, and
+scheduler logs must be protected according to the sensitivity of their data.
+
+Retention is a local explicit operation. Preview lists the exact run IDs
+outside the newest retained set, and deletion requires `--apply`, one guarded
+transaction, an unchanged plan, and at least one remaining run. LotusWatch does
+not delete history automatically, create backups, or manage backup retention.
+
 Targets and redirect destinations may include query parameters. Do not place
 secrets in a target URL, and review every generated report before sharing or
 committing it. Certificate metadata and response headers may also reveal
@@ -165,11 +194,12 @@ system.
 
 ## Authorization Boundary
 
-The implemented checks create traffic comparable to a small number of ordinary
-browser requests, one TLS handshake, and bounded queries through the configured
-recursive DNS resolver. Run LotusWatch at a low frequency against public
-endpoints and DNS names you are permitted to inspect, and stop if the service
-or resolver rejects or rate-limits the requests.
+Each scan or monitored run creates traffic comparable to a small number of
+ordinary browser requests, one TLS handshake, and bounded queries through the
+configured recursive DNS resolver. Run LotusWatch at a low frequency against
+public endpoints and DNS names you are permitted to inspect, and stop if the
+service or resolver rejects or rate-limits the requests. An operating-system
+scheduler must not create overlapping or unexpectedly frequent runs.
 
 Any future intrusive capability must require explicit authorization from the
 system owner and additional safeguards appropriate to its risk.
@@ -202,3 +232,10 @@ code `1` when its threshold is met; input, usage, compatibility, comparison,
 and output errors return exit code `2`. Comparison policy evaluates only added
 findings and current snapshots of changed findings. A policy exit is distinct
 from an operational failure, and severity is not a complete risk score.
+
+A monitoring command distinguishes several outcomes. Scan completion records
+whether each check reached a conclusion; findings describe selected security
+observations; comparison totals describe changes from a compatible baseline;
+and storage success confirms that the validated run was persisted. A stored
+run can contain findings or controlled operational errors. None of these states
+alone proves that the target is secure, available, or exploitable.

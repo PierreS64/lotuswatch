@@ -32,6 +32,11 @@ security configuration and presents the results in a clear, structured form.
 - Classify findings as added, resolved, changed, or unchanged.
 - Generate stable, versioned finding fingerprints for comparison identity.
 - Provide opt-in severity thresholds for CI/CD exit policies.
+- Register named local monitoring targets in a versioned SQLite database.
+- Store validated scan history and compare each run with its previous baseline.
+- Inspect and export stored history without rerunning a scan.
+- Preview and explicitly apply guarded history retention.
+- Support recurring runs through operating-system schedulers without a daemon.
 - Verify formatting, linting, and tests on Python 3.12, 3.13, and 3.14 in CI.
 
 ## Requirements
@@ -98,6 +103,12 @@ Display help for the comparison command:
 
 ```bash
 lotuswatch compare --help
+```
+
+Display help for local monitoring commands:
+
+```bash
+lotuswatch monitor --help
 ```
 
 ### Run a console scan
@@ -175,6 +186,81 @@ Safe synthetic inputs and expected output are available in
 [`examples/baseline-report.json`](examples/baseline-report.json),
 [`examples/current-report.json`](examples/current-report.json), and
 [`examples/comparison-report.json`](examples/comparison-report.json).
+
+### Store local monitoring history
+
+LotusWatch can keep validated scan reports in a local SQLite database. The
+default per-user database paths are:
+
+- Windows: `%LOCALAPPDATA%\LotusWatch\monitoring.db`
+- macOS: `~/Library/Application Support/LotusWatch/monitoring.db`
+- Linux: `$XDG_DATA_HOME/lotuswatch/monitoring.db`, or
+  `~/.local/share/lotuswatch/monitoring.db` when `XDG_DATA_HOME` is unset
+
+Use `--database` with an absolute path for automation and scheduled jobs.
+
+Register a named public target without scanning it:
+
+```bash
+lotuswatch monitor add production example.com
+```
+
+List, disable, or re-enable profiles:
+
+```bash
+lotuswatch monitor list
+lotuswatch monitor disable production
+lotuswatch monitor enable production
+```
+
+Run one monitored scan:
+
+```bash
+lotuswatch monitor run production
+```
+
+The first compatible run establishes an initial baseline. A later run is
+stored only after validation and is compared automatically with the newest
+earlier compatible run for the same canonical target. The command displays
+added, resolved, changed, and unchanged totals.
+
+Inspect recent history and one complete stored report:
+
+```bash
+lotuswatch monitor history production --limit 20
+lotuswatch monitor show RUN_ID
+```
+
+Export one stored report with existing-file protection:
+
+```bash
+lotuswatch monitor show RUN_ID --format json --output stored-report.json
+```
+
+Preview retention before explicitly applying it:
+
+```bash
+lotuswatch monitor prune production --keep 30
+lotuswatch monitor prune production --keep 30 --apply
+```
+
+The first command is always a dry run and lists every eligible run ID. The
+applied command preserves the profile and at least one run, and rejects a
+stale plan if history changed.
+
+Scan completion, finding presence, comparison changes, and storage success are
+different conclusions. A stored run can contain findings or controlled
+operational errors. A successful monitoring command means its validated run
+was stored; it is not a claim that the target is secure or finding-free.
+
+Monitoring databases and exports can contain URLs, certificate metadata,
+headers, DNS values, diagnostics, and evidence. They are not encrypted or
+authenticated by LotusWatch. Restrict filesystem access, do not put secrets in
+target query strings, and protect backups and scheduler logs. LotusWatch does
+not run a background daemon; see [`docs/monitoring.md`](docs/monitoring.md) for
+PowerShell Task Scheduler, cron, locking, backup, and privacy guidance. A safe
+illustrative session is available in
+[`examples/monitoring-session.txt`](examples/monitoring-session.txt).
 
 ### Use severity policies in CI/CD
 
@@ -370,11 +456,13 @@ lotuswatch/
 |       `-- ci.yml
 |-- docs/
 |   |-- ci.md
+|   |-- monitoring.md
 |   `-- scope.md
 |-- examples/
 |   |-- baseline-report.json
 |   |-- comparison-report.json
 |   |-- current-report.json
+|   |-- monitoring-session.txt
 |   `-- sample-report.json
 |-- src/
 |   `-- lotuswatch/
@@ -392,15 +480,25 @@ lotuswatch/
 |       |   `-- report.py
 |       |-- reporters/
 |       |   `-- json.py
+|       |-- storage/
+|       |   |-- base.py
+|       |   |-- paths.py
+|       |   `-- sqlite.py
 |       |-- cli.py
 |       |-- exceptions.py
+|       |-- monitoring.py
+|       |-- monitoring_cli.py
 |       |-- policy.py
+|       |-- scanner.py
 |       `-- target.py
 |-- tests/
 |   |-- checks/
 |   |-- models/
 |   |-- reporters/
+|   |-- storage/
 |   |-- test_cli.py
+|   |-- test_monitor_cli.py
+|   |-- test_monitoring.py
 |   `-- test_target.py
 |-- LICENSE
 |-- README.md
@@ -410,11 +508,12 @@ lotuswatch/
 
 ## Scope and Authorized Use
 
-The scan command makes a small number of ordinary HTTP requests, one TLS
-connection, and bounded CAA and TXT queries through the system recursive
-resolver. Use it at a low frequency and only against public endpoints and DNS
-names that you are permitted to inspect. The compare command reads two local
-reports and performs no network requests.
+The scan command and each `monitor run` command make a small number of ordinary
+HTTP requests, one TLS connection, and bounded CAA and TXT queries through the
+system recursive resolver. Use them at a low frequency and only against public
+endpoints and DNS names that you are permitted to inspect. Registration,
+listing, history, show, prune, and compare commands operate on explicitly
+selected local data and perform no target network requests.
 
 Do not use LotusWatch to bypass authentication, evade protective controls,
 perform denial-of-service testing, test credentials, or exploit a system
@@ -448,6 +547,15 @@ the detailed technical scope.
   not verify report provenance, integrity, or chronological order.
 - Severity thresholds are user-selected automation policies, not an overall
   security or business-risk assessment.
+- Monitoring uses a local SQLite database and does not provide database
+  encryption, authentication, cloud synchronization, or multi-process write
+  coordination beyond bounded SQLite locking.
+- LotusWatch does not install a background daemon. Recurring execution depends
+  on an external scheduler and operators must prevent overlapping jobs against
+  the same database.
+- Stored history observes LotusWatch scan results rather than every target or
+  infrastructure change. Backups, scheduler logs, and retention remain the
+  operator's responsibility.
 - JSON reports can contain target URLs, redirect destinations, certificate
   metadata, selected header values, DNS CAA and TXT records, diagnostics, and
   finding evidence. Comparison reports can contain finding snapshots from both
@@ -473,7 +581,10 @@ the detailed technical scope.
 - [x] Baseline and current report comparison
 - [x] Console and JSON comparison output
 - [x] Opt-in CI/CD severity exit policies
-- [ ] Scheduled monitoring
+- [x] Local target registry and versioned SQLite history
+- [x] On-demand monitoring with automatic previous-run comparison
+- [x] History inspection, explicit retention, and scheduler guidance
+- [ ] Built-in background daemon
 - [ ] Email and Telegram alerts
 - [ ] Web dashboard
 

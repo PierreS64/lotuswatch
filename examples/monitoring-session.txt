@@ -1,0 +1,58 @@
+Synthetic LotusWatch monitoring session
+=======================================
+
+This example is illustrative only. It uses the reserved demo.example domain
+and opaque synthetic run identifiers. No database file is included.
+
+$ lotuswatch monitor add demo demo.example --database ./demo-monitoring.db
+Added monitoring target: demo
+Target: https://demo.example/
+No scan was run.
+
+$ lotuswatch monitor run demo --database ./demo-monitoring.db
+LotusWatch monitoring run stored
+Profile: demo
+Target: https://demo.example/
+Run ID: 11111111-1111-4111-8111-111111111111
+Scan status: COMPLETE (5/5 checks completed)
+Findings: 4
+
+Initial baseline
+This is the first compatible stored run; no comparison is available yet.
+
+$ lotuswatch monitor run demo --database ./demo-monitoring.db
+LotusWatch monitoring run stored
+Profile: demo
+Target: https://demo.example/
+Run ID: 22222222-2222-4222-8222-222222222222
+Scan status: COMPLETE (5/5 checks completed)
+Findings: 4
+
+Comparison with previous run
+Baseline run ID: 11111111-1111-4111-8111-111111111111
+Added: 1
+Resolved: 1
+Changed: 1
+Unchanged: 1
+
+$ lotuswatch monitor history demo --limit 2 --database ./demo-monitoring.db
+Monitoring history: demo (2)
+Run ID: 22222222-2222-4222-8222-222222222222
+Scanned (UTC): 2026-08-20T10:00:00Z
+State: complete (5/5 checks)
+Findings: 4
+Maximum severity: medium
+
+Run ID: 11111111-1111-4111-8111-111111111111
+Scanned (UTC): 2026-08-20T09:00:00Z
+State: complete (5/5 checks)
+Findings: 4
+Maximum severity: medium
+
+$ lotuswatch monitor prune demo --keep 1 --database ./demo-monitoring.db
+Retention plan: demo
+Stored runs: 2
+Keep newest: 1
+Eligible for removal: 1
+- 11111111-1111-4111-8111-111111111111
+DRY RUN No history was deleted.

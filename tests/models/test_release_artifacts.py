@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -21,6 +22,17 @@ SCAN_EXAMPLES = (
     "baseline-report.json",
     "current-report.json",
 )
+MONITORING_EXAMPLE = EXAMPLES_ROOT / "monitoring-session.txt"
+DATABASE_FILE_ENDINGS = (
+    ".db",
+    ".db-journal",
+    ".db-shm",
+    ".db-wal",
+    ".sqlite",
+    ".sqlite-journal",
+    ".sqlite-shm",
+    ".sqlite-wal",
+)
 
 
 def test_version_metadata_matches_package_version() -> None:
@@ -29,7 +41,7 @@ def test_version_metadata_matches_package_version() -> None:
     )
 
     assert pyproject["project"]["version"] == __version__
-    assert __version__ == "0.1.0-alpha.4"
+    assert __version__ == "0.1.0-alpha.5"
 
 
 @pytest.mark.parametrize("filename", SCAN_EXAMPLES)
@@ -118,6 +130,37 @@ def test_synthetic_artifacts_contain_no_private_target_data(filename: str) -> No
     assert "password" not in serialized
     assert "api_key" not in serialized
     assert "access_token" not in serialized
+
+
+def test_synthetic_monitoring_session_is_safe_and_documents_commands() -> None:
+    serialized = MONITORING_EXAMPLE.read_text(encoding="utf-8").casefold()
+
+    assert "demo.example" in serialized
+    assert "no database file is included" in serialized
+    assert "monitor add" in serialized
+    assert "monitor run" in serialized
+    assert "monitor history" in serialized
+    assert "monitor prune" in serialized
+    assert "password" not in serialized
+    assert "api_key" not in serialized
+    assert "access_token" not in serialized
+
+
+def test_repository_contains_no_generated_monitoring_database() -> None:
+    excluded_directories = {".git", ".pytest_cache", ".ruff_cache", ".venv"}
+    discovered: list[Path] = []
+
+    for root, directories, filenames in os.walk(PROJECT_ROOT):
+        directories[:] = [
+            directory
+            for directory in directories
+            if directory not in excluded_directories
+        ]
+        for filename in filenames:
+            if filename.casefold().endswith(DATABASE_FILE_ENDINGS):
+                discovered.append(Path(root, filename).relative_to(PROJECT_ROOT))
+
+    assert discovered == []
 
 
 @pytest.mark.parametrize(
