@@ -84,3 +84,23 @@ class StoreWriteError(MonitoringStoreError):
 
 class StoredReportTooLargeError(StoreValidationError):
     """Raised when a scan report exceeds the storage size limit."""
+
+
+class MonitoringRunError(LotusWatchError):
+    """Base exception for monitored scan orchestration errors."""
+
+
+class MonitoringProfileNotFoundError(MonitoringRunError):
+    """Raised when a requested monitoring profile does not exist."""
+
+
+class MonitoringProfileDisabledError(MonitoringRunError):
+    """Raised when a disabled monitoring profile cannot be scanned."""
+
+
+class MonitoringTargetCompatibilityError(MonitoringRunError):
+    """Raised when stored target configuration cannot be used safely."""
+
+
+class MonitoringComparisonError(MonitoringRunError):
+    """Raised when a monitored run cannot be compared safely."""

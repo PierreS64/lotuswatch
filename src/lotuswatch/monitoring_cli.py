@@ -8,11 +8,14 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
+from lotuswatch import __version__
 from lotuswatch.exceptions import (
+    MonitoringRunError,
     MonitoringStoreError,
     StoreConflictError,
     TargetValidationError,
 )
+from lotuswatch.monitoring import MonitoringExecutionResult, execute_monitoring_run
 from lotuswatch.storage import (
     DEFAULT_QUERY_LIMIT,
     MAX_QUERY_LIMIT,
@@ -136,6 +139,29 @@ def list_targets(
         console.print(f"Last run (UTC): {last_run}")
 
 
+@monitor_app.command("run")
+def run_target(
+    name: Annotated[str, typer.Argument(help="Enabled profile name to scan.")],
+    database: DatabaseOption = None,
+) -> None:
+    """Scan one profile, store the report, and compare its previous run."""
+
+    _validate_profile_name(name)
+    store = _open_store(database)
+    try:
+        result = execute_monitoring_run(
+            store,
+            name,
+            lotuswatch_version=__version__,
+        )
+    except MonitoringRunError as exc:
+        raise typer.BadParameter(str(exc), param_hint="name") from exc
+    except MonitoringStoreError as exc:
+        _raise_storage_error(exc)
+
+    _render_monitoring_run(result)
+
+
 @monitor_app.command("enable")
 def enable_target(
     name: Annotated[str, typer.Argument(help="Profile name to enable.")],
@@ -209,6 +235,48 @@ def _validate_profile_name(name: str) -> None:
 
 def _raise_storage_error(error: MonitoringStoreError) -> NoReturn:
     raise typer.BadParameter(str(error), param_hint="--database") from error
+
+
+def _render_monitoring_run(result: MonitoringExecutionResult) -> None:
+    scan_status = (
+        "COMPLETE"
+        if result.scan.completed_checks == result.scan.recorded_checks
+        else "INCOMPLETE"
+    )
+    status_style = "green" if scan_status == "COMPLETE" else "yellow"
+
+    console.print("[bold green]LotusWatch[/bold green] monitoring run stored")
+    console.print(f"Profile: [bold]{escape(result.profile.name)}[/bold]")
+    console.print(f"Target: [cyan]{escape(result.profile.normalized_url)}[/cyan]")
+    console.print(f"Run ID: {result.stored_run.metadata.id}")
+    console.print(
+        f"Scan status: [{status_style}]{scan_status}[/{status_style}] "
+        f"({result.scan.completed_checks}/{result.scan.recorded_checks} "
+        "checks completed)"
+    )
+    console.print(f"Findings: {len(result.scan.findings)}")
+
+    if result.skipped_baseline_candidates:
+        console.print(
+            "[yellow]Skipped earlier incompatible or non-earlier run "
+            f"candidates: {result.skipped_baseline_candidates}[/yellow]"
+        )
+
+    if result.comparison is None:
+        console.print("\n[bold]Initial baseline[/bold]")
+        console.print(
+            "This is the first compatible stored run; no comparison is available yet."
+        )
+        return
+
+    assert result.baseline_run is not None
+    summary = result.comparison.summary
+    console.print("\n[bold]Comparison with previous run[/bold]")
+    console.print(f"Baseline run ID: {result.baseline_run.metadata.id}")
+    console.print(f"Added: {summary.added}")
+    console.print(f"Resolved: {summary.resolved}")
+    console.print(f"Changed: {summary.changed}")
+    console.print(f"Unchanged: {summary.unchanged}")
 
 
 def _display_timestamp(value: datetime) -> str:
