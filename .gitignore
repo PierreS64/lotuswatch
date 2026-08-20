@@ -29,3 +29,13 @@ Thumbs.db
 reports/
 report.json
 *.report.json
+
+# LotusWatch monitoring databases
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
