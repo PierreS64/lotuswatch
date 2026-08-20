@@ -3,7 +3,6 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlsplit
 
 import typer
 from rich.console import Console
@@ -19,19 +18,8 @@ from lotuswatch.checks import (
     RedirectCheckResult,
     RedirectStatus,
     SecurityHeaderCheckResult,
-    SecurityHeaderStatus,
     TLSCheckResult,
     TLSStatus,
-    caa_result_to_findings,
-    check_caa_records,
-    check_email_dns_records,
-    check_http_to_https_redirect,
-    check_security_headers,
-    check_tls_certificate,
-    email_dns_result_to_findings,
-    redirect_result_to_finding,
-    security_header_result_to_findings,
-    tls_result_to_findings,
 )
 from lotuswatch.exceptions import (
     ComparisonError,
@@ -56,6 +44,7 @@ from lotuswatch.reporters import (
     write_json_comparison_report,
     write_json_report,
 )
+from lotuswatch.scanner import execute_scan
 from lotuswatch.target import normalize_target
 
 
@@ -133,80 +122,32 @@ def scan(
     console.print(f"Input: [cyan]{normalized_target.original}[/cyan]")
     console.print(f"Normalized: [cyan]{normalized_target.url}[/cyan]")
 
-    redirect_result = check_http_to_https_redirect(normalized_target)
-    redirect_finding = redirect_result_to_finding(redirect_result)
-    redirect_findings = [redirect_finding] if redirect_finding is not None else []
-    _render_redirect_result(redirect_result, redirect_findings)
-
-    tls_result = check_tls_certificate(normalized_target)
-    tls_findings = tls_result_to_findings(tls_result)
-    _render_tls_result(tls_result, tls_findings)
-
-    header_endpoint = _redirect_https_endpoint(redirect_result)
-    header_result = check_security_headers(
+    execution = execute_scan(
         normalized_target,
-        endpoint_url=header_endpoint,
+        lotuswatch_version=__version__,
     )
-    header_findings = security_header_result_to_findings(header_result)
-    _render_header_result(header_result, header_findings)
-
-    caa_result = check_caa_records(normalized_target)
-    caa_findings = caa_result_to_findings(caa_result)
-    _render_caa_result(caa_result, caa_findings)
-
-    email_dns_result = check_email_dns_records(normalized_target)
-    email_dns_findings = email_dns_result_to_findings(email_dns_result)
-    _render_email_dns_result(email_dns_result, email_dns_findings)
-
-    findings = (
-        redirect_findings
-        + tls_findings
-        + header_findings
-        + caa_findings
-        + email_dns_findings
+    _render_redirect_result(
+        execution.redirect_result,
+        execution.redirect_findings,
     )
-    executed_checks = [
-        (
-            "http_to_https_redirect",
-            redirect_result,
-            redirect_result.status
-            not in {RedirectStatus.TIMEOUT, RedirectStatus.CONNECTION_ERROR},
-        ),
-        (
-            "tls_certificate",
-            tls_result,
-            tls_result.status in {TLSStatus.PASSED, TLSStatus.VERIFICATION_ERROR},
-        ),
-        (
-            "http_security_headers",
-            header_result,
-            header_result.status is SecurityHeaderStatus.COMPLETED,
-        ),
-        ("dns_caa", caa_result, caa_result.completed),
-        (
-            "dns_email_authentication",
-            email_dns_result,
-            email_dns_result.completed,
-        ),
-    ]
-    checks = [_named_check_data(name, result) for name, result, _ in executed_checks]
-    completed_checks = sum(completed for _, _, completed in executed_checks)
-    _render_scan_summary(len(checks), completed_checks, findings)
+    _render_tls_result(execution.tls_result, execution.tls_findings)
+    _render_header_result(execution.header_result, execution.header_findings)
+    _render_caa_result(execution.caa_result, execution.caa_findings)
+    _render_email_dns_result(
+        execution.email_dns_result,
+        execution.email_dns_findings,
+    )
+    _render_scan_summary(
+        execution.recorded_checks,
+        execution.completed_checks,
+        execution.findings,
+    )
 
     if output_format is OutputFormat.JSON:
         assert output is not None
 
-        report = ScanReport.create(
-            lotuswatch_version=__version__,
-            original_target=normalized_target.original,
-            normalized_url=normalized_target.url,
-            checks=checks,
-            findings=findings,
-            checks_completed=completed_checks,
-        )
-
         try:
-            report_path = write_json_report(report, output)
+            report_path = write_json_report(execution.report, output)
         except ReportError as exc:
             raise typer.BadParameter(
                 str(exc),
@@ -215,7 +156,10 @@ def scan(
 
         console.print(f"\n[green]Report written:[/green] {report_path}")
 
-    if fail_on is not None and scan_findings_meet_threshold(findings, fail_on):
+    if fail_on is not None and scan_findings_meet_threshold(
+        execution.findings,
+        fail_on,
+    ):
         _raise_policy_exit(fail_on, comparison=False)
 
 
@@ -656,19 +600,6 @@ def _render_scan_summary(
         f"low {severity_counts[Severity.LOW]}, "
         f"info {severity_counts[Severity.INFO]}"
     )
-
-
-def _redirect_https_endpoint(result: RedirectCheckResult) -> str | None:
-    if urlsplit(result.final_url).scheme.casefold() == "https":
-        return result.final_url
-
-    return None
-
-
-def _named_check_data(name: str, result) -> dict:
-    data = result.model_dump(mode="json")
-    data["name"] = name
-    return data
 
 
 def _display_value(value: object | None) -> str:

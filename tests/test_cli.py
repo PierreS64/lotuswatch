@@ -5,7 +5,7 @@ from pathlib import Path
 from rich.text import Text
 from typer.testing import CliRunner, Result
 
-import lotuswatch.cli
+import lotuswatch.scanner
 from lotuswatch.checks import (
     CAACheckResult,
     CAACheckStatus,
@@ -203,27 +203,27 @@ def missing_email_dns_result() -> EmailDNSCheckResult:
 
 def stub_successful_checks(monkeypatch) -> None:
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_http_to_https_redirect",
         lambda target: successful_redirect_result(),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_tls_certificate",
         lambda target: successful_tls_result(),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_security_headers",
         lambda target, *, endpoint_url=None: successful_header_result(),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_caa_records",
         lambda target: successful_caa_result(),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_email_dns_records",
         lambda target: successful_email_dns_result(),
     )
@@ -243,7 +243,7 @@ def stub_scan_finding(
         recommendation="Review the synthetic finding.",
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "redirect_result_to_finding",
         lambda result: finding,
     )
@@ -284,14 +284,14 @@ def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None
         return successful_email_dns_result()
 
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_http_to_https_redirect",
         redirect_check,
     )
-    monkeypatch.setattr(lotuswatch.cli, "check_tls_certificate", tls_check)
-    monkeypatch.setattr(lotuswatch.cli, "check_security_headers", header_check)
-    monkeypatch.setattr(lotuswatch.cli, "check_caa_records", caa_check)
-    monkeypatch.setattr(lotuswatch.cli, "check_email_dns_records", email_dns_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_tls_certificate", tls_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_security_headers", header_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_caa_records", caa_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_email_dns_records", email_dns_check)
 
     result = runner.invoke(app, ["scan", "EXAMPLE.COM"])
     output = plain_output(result)
@@ -535,14 +535,14 @@ def test_controlled_errors_do_not_stop_independent_checks(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_http_to_https_redirect",
         redirect_check,
     )
-    monkeypatch.setattr(lotuswatch.cli, "check_tls_certificate", tls_check)
-    monkeypatch.setattr(lotuswatch.cli, "check_security_headers", header_check)
-    monkeypatch.setattr(lotuswatch.cli, "check_caa_records", caa_check)
-    monkeypatch.setattr(lotuswatch.cli, "check_email_dns_records", email_dns_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_tls_certificate", tls_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_security_headers", header_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_caa_records", caa_check)
+    monkeypatch.setattr(lotuswatch.scanner, "check_email_dns_records", email_dns_check)
 
     result = runner.invoke(app, ["scan", "example.com"])
     output = plain_output(result)
@@ -570,7 +570,7 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_http_to_https_redirect",
         lambda target: RedirectCheckResult(
             passed=False,
@@ -583,22 +583,22 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
         ),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_tls_certificate",
         lambda target: successful_tls_result(days=14),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_security_headers",
         lambda target, *, endpoint_url=None: missing_header_result(),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_caa_records",
         lambda target: missing_caa_result(),
     )
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_email_dns_records",
         lambda target: missing_email_dns_result(),
     )
@@ -643,7 +643,7 @@ def test_json_report_collects_multiple_findings_and_summary_counts(
 def test_caa_error_does_not_stop_successful_email_dns_check(monkeypatch) -> None:
     stub_successful_checks(monkeypatch)
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_caa_records",
         lambda target: CAACheckResult(
             completed=False,
@@ -671,7 +671,7 @@ def test_email_dns_error_remains_in_json_with_successful_caa(
 ) -> None:
     stub_successful_checks(monkeypatch)
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_email_dns_records",
         lambda target: EmailDNSCheckResult(
             completed=False,
@@ -727,7 +727,7 @@ def test_dns_console_bounds_caa_values_and_omits_txt_values(monkeypatch) -> None
         for index in range(6)
     ]
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_caa_records",
         lambda target: CAACheckResult(
             completed=True,
@@ -745,7 +745,7 @@ def test_dns_console_bounds_caa_values_and_omits_txt_values(monkeypatch) -> None
     ].value = "v=spf1 include:private-mail-provider.example -all"
     email_result.spf_records[0].value = email_result.spf_query.records[0].value
     monkeypatch.setattr(
-        lotuswatch.cli,
+        lotuswatch.scanner,
         "check_email_dns_records",
         lambda target: email_result,
     )
