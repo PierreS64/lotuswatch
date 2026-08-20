@@ -52,3 +52,35 @@ class ComparisonTargetMismatchError(ComparisonInputError):
 
 class DuplicateFindingFingerprintError(ComparisonInputError):
     """Raised when one report contains a duplicate finding identity."""
+
+
+class MonitoringStoreError(LotusWatchError):
+    """Base exception for local monitoring storage errors."""
+
+
+class StoreInitializationError(MonitoringStoreError):
+    """Raised when a monitoring store cannot be initialized safely."""
+
+
+class StoreCompatibilityError(StoreInitializationError):
+    """Raised when a monitoring store uses an unsupported schema."""
+
+
+class StoreValidationError(MonitoringStoreError):
+    """Raised when data does not satisfy the monitoring storage contract."""
+
+
+class StoreConflictError(MonitoringStoreError):
+    """Raised when stored identifiers or unique values conflict."""
+
+
+class StoreReadError(MonitoringStoreError):
+    """Raised when monitoring data cannot be read safely."""
+
+
+class StoreWriteError(MonitoringStoreError):
+    """Raised when monitoring data cannot be persisted atomically."""
+
+
+class StoredReportTooLargeError(StoreValidationError):
+    """Raised when a scan report exceeds the storage size limit."""
