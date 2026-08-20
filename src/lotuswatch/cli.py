@@ -35,6 +35,7 @@ from lotuswatch.models import (
     Severity,
     compare_reports,
 )
+from lotuswatch.monitoring_cli import monitor_app
 from lotuswatch.policy import (
     comparison_findings_meet_threshold,
     scan_findings_meet_threshold,
@@ -60,6 +61,7 @@ app = typer.Typer(
     help="Monitor websites and identify security configuration risks.",
     no_args_is_help=True,
 )
+app.add_typer(monitor_app, name="monitor")
 
 console = Console()
 
