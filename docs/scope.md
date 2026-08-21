@@ -54,6 +54,7 @@ The current codebase supports:
 - Automatic comparison with the newest earlier compatible stored run
 - Bounded history inspection and stored-report console or JSON export
 - Dry-run retention previews and explicit transactional pruning
+- Bounded SQLite integrity inspection and validated non-overwriting online backup
 - PowerShell Task Scheduler and POSIX cron integration guidance
 - Minimal versioned notification event selection for added and changed findings
 - Opt-in generic HTTPS webhook delivery with optional HMAC-SHA256 signing
@@ -147,6 +148,13 @@ local database and perform no website or DNS request. LotusWatch does not run a
 background daemon; recurring execution is delegated to an operating-system
 scheduler configured by the user.
 
+Database check and backup commands also perform no network request. They require
+an explicit existing SQLite source, validate its physical and logical state,
+and never repair or migrate it. Backup uses a private temporary file and the
+SQLite online backup API, validates the completed copy, and refuses to replace
+an existing destination. These commands do not restore, merge, replicate,
+encrypt, authenticate, sign, upload, schedule, or automatically rotate data.
+
 When notification options are selected, `monitor run` first completes and
 stores the validated scan. It then selects only added findings and current
 snapshots of changed findings that meet the explicit threshold. The initial
@@ -234,7 +242,8 @@ store notification delivery history or provider responses.
 Retention is a local explicit operation. Preview lists the exact run IDs
 outside the newest retained set, and deletion requires `--apply`, one guarded
 transaction, an unchanged plan, and at least one remaining run. LotusWatch does
-not delete history automatically, create backups, or manage backup retention.
+not delete history automatically or manage backup retention. Database backup is
+an explicit non-overwriting local command and does not run on a schedule.
 
 Targets and redirect destinations may include query parameters. Do not place
 secrets in a target URL, and review every generated report before sharing or

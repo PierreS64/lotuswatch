@@ -16,6 +16,7 @@ from lotuswatch.exceptions import (
     NotificationError,
     NotificationPolicyError,
     ReportError,
+    StoreBackupDestinationError,
     StoreConflictError,
     TargetValidationError,
 )
@@ -68,6 +69,11 @@ monitor_app = typer.Typer(
     help="Register and manage local website monitoring targets.",
     no_args_is_help=True,
 )
+database_app = typer.Typer(
+    help="Check and back up an existing local monitoring database.",
+    no_args_is_help=True,
+)
+monitor_app.add_typer(database_app, name="database")
 
 console = Console()
 
@@ -78,6 +84,56 @@ DatabaseOption = Annotated[
         help="Path to the local SQLite monitoring database.",
     ),
 ]
+
+
+@database_app.command("check")
+def check_database(
+    database: DatabaseOption = None,
+) -> None:
+    """Validate an existing database without modifying or repairing it."""
+
+    store = _existing_maintenance_store(database)
+    try:
+        result = store.check_database()
+    except MonitoringStoreError as exc:
+        _raise_storage_error(exc)
+
+    console.print("[bold green]Monitoring database check passed[/bold green]")
+    console.print(f"Schema version: {escape(result.schema_version)}")
+    console.print(f"Targets inspected: {result.targets_inspected}")
+    console.print(f"Runs inspected: {result.runs_inspected}")
+    console.print("No repair or migration was performed.")
+
+
+@database_app.command("backup")
+def backup_database(
+    destination: Annotated[
+        Path,
+        typer.Argument(
+            help="New backup file path; an existing filesystem entry is refused."
+        ),
+    ],
+    database: DatabaseOption = None,
+) -> None:
+    """Create and validate a non-overwriting online SQLite backup."""
+
+    store = _existing_maintenance_store(database)
+    try:
+        result = store.backup_database(destination)
+    except StoreBackupDestinationError as exc:
+        raise typer.BadParameter(str(exc), param_hint="destination") from exc
+    except MonitoringStoreError as exc:
+        _raise_storage_error(exc)
+
+    console.print("[bold green]Monitoring database backup completed[/bold green]")
+    console.print(f"Destination: {escape(str(result.destination))}")
+    console.print(f"Schema version: {escape(result.validation.schema_version)}")
+    console.print(f"Targets inspected: {result.validation.targets_inspected}")
+    console.print(f"Runs inspected: {result.validation.runs_inspected}")
+    console.print(
+        "[yellow]The backup contains sensitive monitoring history and is not "
+        "encrypted, authenticated, or signed.[/yellow]"
+    )
 
 
 @monitor_app.command("add")
@@ -478,6 +534,17 @@ def _open_store(database: Path | None) -> SQLiteMonitoringStore:
     return store
 
 
+def _existing_maintenance_store(
+    database: Path | None,
+) -> SQLiteMonitoringStore:
+    if database is None:
+        raise typer.BadParameter(
+            "--database is required for database maintenance commands.",
+            param_hint="--database",
+        )
+    return SQLiteMonitoringStore(database)
+
+
 def _validate_profile_name(name: str) -> None:
     if not PROFILE_NAME_PATTERN.fullmatch(name):
         raise typer.BadParameter(
@@ -643,5 +710,6 @@ __all__ = [
     "PROFILE_NAME_PATTERN",
     "MonitorNotificationChannel",
     "MonitorOutputFormat",
+    "database_app",
     "monitor_app",
 ]

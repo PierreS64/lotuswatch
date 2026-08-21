@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol, Self, runtime_checkable
 from uuid import UUID, uuid4
 
@@ -128,12 +129,44 @@ class StoredScanRun(BaseModel):
         )
 
 
+class DatabaseCheckResult(BaseModel):
+    """Bounded summary of a successful monitoring database inspection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(min_length=1, max_length=32)
+    targets_inspected: int = Field(ge=0)
+    runs_inspected: int = Field(ge=0)
+
+
+class DatabaseBackupResult(BaseModel):
+    """Validated result of a completed non-overwriting database backup."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    destination: Path
+    validation: DatabaseCheckResult
+
+    @field_validator("destination")
+    @classmethod
+    def require_absolute_destination(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("Backup destination must be absolute.")
+        return value
+
+
 @runtime_checkable
 class MonitoringStore(Protocol):
     """Storage contract consumed by monitoring application workflows."""
 
     def initialize(self) -> None:
         """Initialize or validate the backing store schema."""
+
+    def check_database(self) -> DatabaseCheckResult:
+        """Validate an existing backing database without modifying it."""
+
+    def backup_database(self, destination: Path) -> DatabaseBackupResult:
+        """Create and validate a non-overwriting consistent backup."""
 
     def create_target(self, target: MonitoredTarget) -> MonitoredTarget:
         """Persist a new monitoring target."""
@@ -201,6 +234,8 @@ class MonitoringStore(Protocol):
 __all__ = [
     "DEFAULT_QUERY_LIMIT",
     "MAX_QUERY_LIMIT",
+    "DatabaseBackupResult",
+    "DatabaseCheckResult",
     "MonitoredTarget",
     "MonitoringStore",
     "ScanRunMetadata",

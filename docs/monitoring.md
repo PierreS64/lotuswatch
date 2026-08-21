@@ -250,10 +250,41 @@ a bounded busy timeout, but LotusWatch does not provide multi-process write
 coordination beyond SQLite locking. Separate profiles can share one database
 when their jobs do not overlap.
 
-## Backups
+## Database Integrity and Online Backups
 
-Stop scheduled LotusWatch jobs before copying the database. Back up the
-database with filesystem permissions appropriate for sensitive monitoring
-history, verify that the backup can be read, and protect or remove retired
-copies according to your retention policy. LotusWatch does not create,
-encrypt, authenticate, rotate, or restore backups automatically.
+Use the explicit maintenance commands instead of making an ordinary filesystem
+copy of an active SQLite database. Both commands require an existing source
+path and never create a missing source database.
+
+Inspect the SQLite header, monitoring schema, required columns, foreign-key
+relationships, physical integrity, target metadata, and stored reports:
+
+```bash
+lotuswatch monitor database check --database /absolute/path/monitoring.db
+```
+
+The logical inspection is bounded and reports only the number of targets and
+runs validated. It does not print report contents, run a scan, repair data,
+migrate the schema, or contact a website, DNS resolver, webhook, or Telegram.
+
+Create a transactionally consistent backup through SQLite's online backup API:
+
+```bash
+lotuswatch monitor database backup /absolute/path/monitoring-backup.db --database /absolute/path/monitoring.db
+```
+
+The destination must be a new explicit file in an existing real directory.
+LotusWatch refuses existing files, directories, links, reparse points, source
+aliases, and destinations that appear during finalization. It writes through a
+private temporary file in the destination directory, validates the complete
+copy, and only then exposes the requested destination. Restrictive file modes
+are applied where the operating system supports them; Windows access control
+still depends on the destination directory and account permissions.
+
+An online backup is consistent even when the source is open, but the existing
+one-process-per-database guidance still applies. Avoid overlapping scheduled
+jobs and maintenance where practical. Protect backups with filesystem
+permissions appropriate for complete monitoring history, test them with
+`monitor database check`, and remove retired copies according to your own
+retention policy. LotusWatch does not encrypt, authenticate, sign, rotate,
+restore, upload, or schedule backups automatically.

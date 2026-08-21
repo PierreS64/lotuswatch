@@ -71,10 +71,11 @@ identity and do not authenticate or sign report contents.
 Local monitoring stores complete validated reports and historical target
 metadata in SQLite. LotusWatch does not encrypt, authenticate, or sign the
 database or its backups. Restrict filesystem access to database files and their
-journal, WAL, and shared-memory companions. Stop scheduled jobs before making a
-consistent backup, protect scheduler output, and review stored reports before
-exporting, sharing, or committing them. Retention is explicit and does not
-replace a backup and data-handling policy.
+journal, WAL, and shared-memory companions. Use the bounded database check and
+SQLite online backup commands instead of copying an active database file.
+Protect backup destinations, scheduler output, and temporary filesystem areas,
+and review stored reports before exporting, sharing, or committing them.
+Retention is explicit and does not replace a backup and data-handling policy.
 
 Notification events are intentionally smaller than scan reports but remain
 sensitive. They contain the monitored profile and canonical target, event and
@@ -123,6 +124,14 @@ Registration, listing, history, show, enable, disable, and prune operations use
 only the selected local database. LotusWatch does not install a daemon or
 coordinate overlapping scheduler jobs; configure recurring runs at a safe
 frequency and use one process per database.
+
+`monitor database check` and `monitor database backup` operate only on an
+explicit existing local SQLite database and make no website, DNS, webhook, or
+Telegram request. The check validates physical integrity, schema, foreign keys,
+stored target metadata, and bounded report history without repairing or
+modifying the source. Backup uses SQLite's online backup API, validates a
+private temporary copy, and refuses to replace an existing destination. It is
+not a restore, replication, encryption, or cloud synchronization facility.
 
 Notifications add outbound provider traffic only when explicitly selected,
 after the monitored scan has been stored, and only when added or changed
@@ -181,3 +190,10 @@ false negatives, controlled operational errors, and stale infrastructure
 details. Stored scan completion, finding counts, comparison changes, and
 successful persistence are separate states and none proves that a target is
 secure or exploitable.
+
+A successful integrity check establishes only that the supported SQLite
+structure and bounded stored data were readable and internally consistent at
+inspection time. It does not authenticate the database, prove its origin,
+detect every malicious but model-valid change, or provide recovery. Online
+backups are complete sensitive copies and are not encrypted, authenticated,
+signed, automatically rotated, or automatically restored by LotusWatch.
