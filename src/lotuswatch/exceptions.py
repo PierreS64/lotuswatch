@@ -112,3 +112,19 @@ class MonitoringRetentionError(MonitoringRunError):
 
 class NotificationPolicyError(LotusWatchError):
     """Raised when a monitoring result cannot produce a safe notification."""
+
+
+class NotificationError(LotusWatchError):
+    """Base exception for notification configuration and delivery errors."""
+
+
+class NotificationConfigurationError(NotificationError):
+    """Raised when notification configuration is missing or invalid."""
+
+
+class NotificationSecretError(NotificationConfigurationError):
+    """Raised when a requested notification secret cannot be resolved safely."""
+
+
+class NotificationDeliveryError(NotificationError):
+    """Raised when notification delivery cannot be orchestrated safely."""
