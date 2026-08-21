@@ -65,6 +65,51 @@ only the variables required by the selected channels. Do not place their
 values in command-line arguments, documentation, scheduler logs, or the
 monitoring database.
 
+### Webhook delivery
+
+The webhook channel requires an absolute public HTTPS endpoint. LotusWatch
+rejects embedded credentials, fragments, unsupported ports, local names, and
+explicit non-public IP addresses. Redirects are not followed.
+
+The request body is the minimal versioned notification event as deterministic
+JSON. It contains the event and run identifiers, profile, canonical target,
+timestamps, threshold, comparison totals, and bounded triggering finding
+identities. It does not contain complete reports, evidence, descriptions, or
+remediation text. `X-LotusWatch-Event-ID` and
+`X-LotusWatch-Notification-Schema` identify the event and schema.
+
+When `LOTUSWATCH_WEBHOOK_SECRET` is configured, LotusWatch signs the exact
+transmitted bytes with HMAC-SHA256 and sends
+`X-LotusWatch-Signature: v1=<digest>`. HMAC helps a receiver authenticate the
+body when both sides protect the shared secret. It does not encrypt the event,
+authenticate the receiver to other systems, or prevent receiver-side replay.
+
+A `2xx` response is delivered. Timeouts, connection failures, `429`, and
+selected transient `5xx` responses use bounded retries. Redirects and other
+permanent responses are controlled provider failures. Response bodies and the
+complete endpoint URL are not retained in delivery results. Query parameters
+can contain secrets, so protect the webhook URL itself.
+
+### Telegram delivery
+
+The Telegram channel uses only the fixed official Bot API HTTPS origin and the
+`sendMessage` method. The token is part of the request path and must be treated
+as a secret. LotusWatch does not call bot-profile, updates, chat-history, media,
+or unrelated Telegram endpoints.
+
+Messages are deterministic plain text without Markdown or HTML parse modes.
+They include the profile, target, scan time, threshold, comparison totals, and
+bounded triggering finding lines. Messages are limited to 4096 characters and
+state how many additional observations were omitted. Provider responses are
+read through a byte limit, and delivery succeeds only after a structured
+`ok: true` message response is validated.
+
+Authentication and permanent request errors are not retried. Rate limits,
+timeouts, connection failures, and selected transient server errors use the
+same bounded retry policy as webhooks. Telegram `retry_after` values are capped
+before use. Tokens, chat identifiers, complete request URLs, and provider
+response bodies are not included in public delivery results.
+
 The initial compatible run establishes a baseline and does not alert by
 default. Later runs deliver only when an added finding or the current version
 of a changed finding meets `--notify-on`. Resolved and unchanged findings do
@@ -92,6 +137,13 @@ Exit code `3` does not mean the stored scan was lost. Delivery is best effort;
 a timeout after provider acceptance can cause a later retry or monitoring run
 to produce a duplicate notification. LotusWatch does not provide exactly-once
 delivery or a persistent delivery queue.
+
+`SKIPPED` means the run was an initial baseline or no added or changed current
+finding met the threshold. `DELIVERED` means the provider returned a validated
+success. `CONFIGURATION ERROR` means a required value was absent or invalid.
+Timeout, connection, provider rejection, and controlled internal outcomes are
+delivery failures. Every successfully completed monitoring workflow stores its
+validated run before these outcomes are evaluated.
 
 ## Inspect History
 

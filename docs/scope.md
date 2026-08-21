@@ -55,6 +55,11 @@ The current codebase supports:
 - Bounded history inspection and stored-report console or JSON export
 - Dry-run retention previews and explicit transactional pruning
 - PowerShell Task Scheduler and POSIX cron integration guidance
+- Minimal versioned notification event selection for added and changed findings
+- Opt-in generic HTTPS webhook delivery with optional HMAC-SHA256 signing
+- Opt-in bounded plain-text Telegram Bot API delivery
+- Notification dry runs, deterministic multi-channel delivery, and partial-success
+  exit behavior
 - GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
 ## Planned Beyond the Current Alpha
@@ -69,7 +74,8 @@ The following capabilities are not implemented yet:
 - Full SPF mechanism, include, alignment, and lookup-limit evaluation
 - Organizational-domain and inherited DMARC policy discovery
 - Built-in background daemon installation
-- Alert delivery and notification services
+- Email notification delivery
+- Persistent notification queues, replay, and delivery history
 - Web dashboards and database-backed trend visualization
 - Report signing, provenance verification, or tamper detection
 - Custom policy expressions, allowlists, and finding suppressions
@@ -141,6 +147,28 @@ local database and perform no website or DNS request. LotusWatch does not run a
 background daemon; recurring execution is delegated to an operating-system
 scheduler configured by the user.
 
+When notification options are selected, `monitor run` first completes and
+stores the validated scan. It then selects only added findings and current
+snapshots of changed findings that meet the explicit threshold. The initial
+baseline, resolved findings, unchanged findings, and below-threshold changes
+do not cause provider traffic. A notification dry run selects and renders the
+event without constructing a provider, resolving its secrets, or sending a
+request.
+
+Webhook delivery sends a bounded HTTPS `POST` to the explicitly configured
+public endpoint. Redirects and environment proxy inheritance are disabled,
+TLS certificate verification remains enabled, cookies are cleared between
+attempts, and provider response bodies are not read or retained. Timeouts,
+connection failures, `429`, and selected transient `5xx` responses can be
+retried within the shared bounded attempt and delay policy.
+
+Telegram delivery sends a bounded JSON `POST` only to the fixed official Bot
+API HTTPS origin and `sendMessage` method. Messages are plain text with no
+Markdown or HTML parse mode and are limited to 4096 characters. Telegram JSON
+responses are read through a byte limit and validated before delivery is
+accepted. Rate-limit delays are bounded. LotusWatch does not request bot
+profiles, updates, chat history, media, or other Telegram operations.
+
 ## Data Handling
 
 LotusWatch does not intentionally store response bodies, cookies, passwords,
@@ -181,6 +209,28 @@ authenticated, signed, or synchronized by LotusWatch. Database files,
 journals, WAL and shared-memory files, exports, backups, terminal captures, and
 scheduler logs must be protected according to the sensitivity of their data.
 
+Notification events contain a profile name, canonical target, event and run
+identifiers, timestamps, a selected severity threshold, comparison totals,
+and bounded finding identifiers, severities, titles, statuses, and stable
+fingerprints. They exclude complete reports, finding evidence, descriptions,
+recommendations, certificate details, selected headers, DNS values, and check
+diagnostics. Events remain sensitive because they reveal target identity and
+selected security observations.
+
+Webhook URLs, optional webhook HMAC secrets, Telegram bot tokens, and Telegram
+chat identifiers are resolved only from explicitly named environment
+variables when delivery is required. They are not accepted through CLI flags,
+stored in SQLite, or serialized into notification results. A webhook URL can
+contain sensitive query parameters, and a Telegram token is part of the Bot
+API request path. Protect process environments, scheduler configuration,
+terminal output, and provider-side logs accordingly.
+
+Webhook HMAC authenticates exact request bytes to a receiver sharing the
+secret; it does not encrypt the event, establish report provenance, or provide
+exactly-once delivery. Telegram messages are also not encrypted by LotusWatch
+beyond the HTTPS transport provided by the remote service. LotusWatch does not
+store notification delivery history or provider responses.
+
 Retention is a local explicit operation. Preview lists the exact run IDs
 outside the newest retained set, and deletion requires `--apply`, one guarded
 transaction, an unchanged plan, and at least one remaining run. LotusWatch does
@@ -200,6 +250,12 @@ configured recursive DNS resolver. Run LotusWatch at a low frequency against
 public endpoints and DNS names you are permitted to inspect, and stop if the
 service or resolver rejects or rate-limits the requests. An operating-system
 scheduler must not create overlapping or unexpectedly frequent runs.
+
+Notification endpoints are operator-selected destinations, not scan-target
+data. Configure only provider accounts and public HTTPS webhook endpoints that
+you are authorized to use. Provider requests occur after the monitored scan is
+stored and can be retried, so scheduled frequency and provider rate limits
+must be considered independently from target scan traffic.
 
 Any future intrusive capability must require explicit authorization from the
 system owner and additional safeguards appropriate to its risk.
@@ -239,3 +295,16 @@ observations; comparison totals describe changes from a compatible baseline;
 and storage success confirms that the validated run was persisted. A stored
 run can contain findings or controlled operational errors. None of these states
 alone proves that the target is secure, available, or exploitable.
+
+Notifications are disabled by default. With explicit channels and a threshold,
+`SKIPPED` means the initial baseline or comparison policy required no delivery,
+`DELIVERED` means a bounded provider response was validated, and configuration
+or provider outcomes mean delivery failed after storage. Exit code `3` reports
+this partial-success state: the scan is stored, but at least one requested
+notification failed. It does not mean the scan was rolled back or lost.
+
+Delivery is best effort. A provider can accept a request while its response is
+lost, causing a retry or later monitoring run to produce a duplicate. LotusWatch
+does not claim exactly-once delivery, persist a retry queue, or authenticate
+provider-side processing. Notification thresholds remain automation policies,
+not complete risk scores.
