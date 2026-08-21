@@ -85,6 +85,7 @@ def test_runtime_and_development_dependencies_remain_separate() -> None:
     project = project_configuration()["project"]
     runtime_dependencies = project["dependencies"]
     development_dependencies = project["optional-dependencies"]["dev"]
+    distribution_dependencies = project["optional-dependencies"]["distribution"]
 
     assert runtime_dependencies
     assert development_dependencies
@@ -94,6 +95,10 @@ def test_runtime_and_development_dependencies_remain_separate() -> None:
     )
     assert any(item.startswith("pytest") for item in development_dependencies)
     assert any(item.startswith("ruff") for item in development_dependencies)
+    assert any(item.startswith("build") for item in distribution_dependencies)
+    assert any(item.startswith("packaging") for item in distribution_dependencies)
+    assert any(item.startswith("twine") for item in distribution_dependencies)
+    assert not set(runtime_dependencies) & set(distribution_dependencies)
 
 
 def test_readme_uses_package_index_safe_links() -> None:

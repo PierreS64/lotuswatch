@@ -517,6 +517,35 @@ pytest
 Tests for network behavior use mocked HTTP and DNS responses and do not depend
 on public websites or public DNS resolvers.
 
+### Verify distribution artifacts
+
+Install the repository-only distribution tools, then build and validate one
+source distribution and one wheel:
+
+```bash
+python -m pip install ".[distribution]"
+python -m build --outdir dist
+python -m twine check dist/*
+python scripts/verify_distribution.py dist
+```
+
+The verifier reads bounded archive members without extracting them into the
+repository. It checks names, versions, metadata, runtime modules, safe paths,
+and forbidden local or sensitive artifacts.
+
+Smoke-test each artifact in a fresh virtual environment outside the source
+tree:
+
+```bash
+python scripts/smoke_install_distribution.py path/to/lotuswatch_security-version-py3-none-any.whl
+python scripts/smoke_install_distribution.py path/to/lotuswatch_security-version.tar.gz
+```
+
+The smoke command installs dependencies from the configured Python package
+index. It does not run a LotusWatch scan, open a monitoring database, or
+contact a notification provider. Build output belongs in `dist/`, is ignored
+by Git, and must be reviewed rather than committed.
+
 ## Project Structure
 
 ```text
@@ -535,6 +564,9 @@ lotuswatch/
 |   |-- monitoring-session.txt
 |   |-- notification-event.json
 |   `-- sample-report.json
+|-- scripts/
+|   |-- smoke_install_distribution.py
+|   `-- verify_distribution.py
 |-- src/
 |   `-- lotuswatch/
 |       |-- checks/
@@ -581,10 +613,13 @@ lotuswatch/
 |   |-- test_monitoring.py
 |   |-- test_notification_delivery.py
 |   |-- test_notification_policy.py
+|   |-- test_package_metadata.py
+|   |-- test_distribution_verification.py
 |   |-- test_telegram.py
 |   |-- test_target.py
 |   `-- test_webhook.py
 |-- LICENSE
+|-- MANIFEST.in
 |-- README.md
 |-- SECURITY.md
 `-- pyproject.toml

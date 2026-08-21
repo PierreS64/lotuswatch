@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -53,3 +55,94 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  package-build:
+    name: Build distribution artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install distribution tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[distribution]"
+
+      - name: Build wheel and source distribution
+        run: python -m build --outdir dist
+
+      - name: Check rendered package metadata
+        run: python -m twine check dist/*
+
+      - name: Verify distribution contents
+        run: python scripts/verify_distribution.py dist
+
+      - name: Store reviewed distribution artifacts
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: python-package-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  package-install:
+    name: Installed package / Python ${{ matrix.python-version }}
+    needs: package-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install verifier dependency
+        run: python -m pip install "packaging>=24.0,<27.0"
+
+      - name: Download reviewed distribution artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: python-package-distributions
+          path: dist
+
+      - name: Reverify downloaded artifacts
+        run: python scripts/verify_distribution.py dist
+
+      - name: Smoke-test wheel installation
+        run: |
+          wheel_path="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$wheel_path"
+          python scripts/smoke_install_distribution.py "$wheel_path"
+
+      - name: Smoke-test source-distribution installation
+        run: |
+          sdist_path="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          test -n "$sdist_path"
+          python scripts/smoke_install_distribution.py "$sdist_path"
