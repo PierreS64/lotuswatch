@@ -11,6 +11,8 @@ from lotuswatch.checks import CAACheckResult, EmailDNSCheckResult
 from lotuswatch.models import (
     ComparisonReport,
     ComparisonStatus,
+    NotificationChangeStatus,
+    NotificationEvent,
     ScanReport,
     compare_reports,
 )
@@ -23,6 +25,7 @@ SCAN_EXAMPLES = (
     "current-report.json",
 )
 MONITORING_EXAMPLE = EXAMPLES_ROOT / "monitoring-session.txt"
+NOTIFICATION_EXAMPLE = EXAMPLES_ROOT / "notification-event.json"
 DATABASE_FILE_ENDINGS = (
     ".db",
     ".db-journal",
@@ -41,7 +44,7 @@ def test_version_metadata_matches_package_version() -> None:
     )
 
     assert pyproject["project"]["version"] == __version__
-    assert __version__ == "0.1.0-alpha.5"
+    assert __version__ == "0.1.0-alpha.6"
 
 
 @pytest.mark.parametrize("filename", SCAN_EXAMPLES)
@@ -119,9 +122,42 @@ def test_synthetic_comparison_matches_source_reports() -> None:
     assert {entry.status for entry in comparison.findings} == set(ComparisonStatus)
 
 
+def test_synthetic_notification_event_validates_and_matches_comparison() -> None:
+    event = NotificationEvent.model_validate_json(
+        NOTIFICATION_EXAMPLE.read_text(encoding="utf-8")
+    )
+    comparison = ComparisonReport.model_validate_json(
+        (EXAMPLES_ROOT / "comparison-report.json").read_text(encoding="utf-8")
+    )
+
+    assert event.normalized_target == "https://demo.example/"
+    assert event.comparison_summary == comparison.summary
+    assert event.total_triggering_observations == len(event.observations) == 1
+    assert event.truncated is False
+    assert event.observations[0].status is NotificationChangeStatus.CHANGED
+
+    comparison_entry = next(
+        item
+        for item in comparison.findings
+        if item.fingerprint == event.observations[0].fingerprint
+    )
+    assert comparison_entry.status is ComparisonStatus.CHANGED
+    assert comparison_entry.current_finding is not None
+    assert event.observations[0].finding_id == comparison_entry.current_finding.id
+    assert event.observations[0].severity == comparison_entry.current_finding.severity
+    assert event.observations[0].title == comparison_entry.current_finding.title
+
+    serialized = NOTIFICATION_EXAMPLE.read_text(encoding="utf-8").casefold()
+    assert "evidence" not in serialized
+    assert "description" not in serialized
+    assert "recommendation" not in serialized
+    assert "webhook" not in serialized
+    assert "telegram" not in serialized
+
+
 @pytest.mark.parametrize(
     "filename",
-    (*SCAN_EXAMPLES, "comparison-report.json"),
+    (*SCAN_EXAMPLES, "comparison-report.json", "notification-event.json"),
 )
 def test_synthetic_artifacts_contain_no_private_target_data(filename: str) -> None:
     serialized = (EXAMPLES_ROOT / filename).read_text(encoding="utf-8").casefold()
@@ -141,6 +177,10 @@ def test_synthetic_monitoring_session_is_safe_and_documents_commands() -> None:
     assert "monitor run" in serialized
     assert "monitor history" in serialized
     assert "monitor prune" in serialized
+    assert "--notify webhook" in serialized
+    assert "--notify-on medium" in serialized
+    assert "--notification-dry-run" in serialized
+    assert "provider request not sent" in serialized
     assert "password" not in serialized
     assert "api_key" not in serialized
     assert "access_token" not in serialized
@@ -159,6 +199,53 @@ def test_repository_contains_no_generated_monitoring_database() -> None:
         for filename in filenames:
             if filename.casefold().endswith(DATABASE_FILE_ENDINGS):
                 discovered.append(Path(root, filename).relative_to(PROJECT_ROOT))
+
+    assert discovered == []
+
+
+def test_repository_contains_no_notification_delivery_artifacts() -> None:
+    excluded_directories = {".git", ".pytest_cache", ".ruff_cache", ".venv"}
+    unsafe_name = re.compile(
+        r"(?:webhook|telegram|notification).*(?:response|delivery).*(?:json|log|txt)$",
+        re.IGNORECASE,
+    )
+    discovered: list[Path] = []
+
+    for root, directories, filenames in os.walk(PROJECT_ROOT):
+        directories[:] = [
+            directory
+            for directory in directories
+            if directory not in excluded_directories
+        ]
+        for filename in filenames:
+            if unsafe_name.search(filename):
+                discovered.append(Path(root, filename).relative_to(PROJECT_ROOT))
+
+    assert discovered == []
+
+
+def test_repository_contains_no_literal_notification_credentials() -> None:
+    excluded_directories = {".git", ".pytest_cache", ".ruff_cache", ".venv"}
+    text_endings = {".md", ".py", ".json", ".toml", ".txt", ".yml", ".yaml"}
+    bot_token = re.compile(r"\b[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\b")
+    secret_assignment = re.compile(
+        r"LOTUSWATCH_(?:WEBHOOK_URL|WEBHOOK_SECRET|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID)\s*=\s*\S+"
+    )
+    discovered: list[Path] = []
+
+    for root, directories, filenames in os.walk(PROJECT_ROOT):
+        directories[:] = [
+            directory
+            for directory in directories
+            if directory not in excluded_directories
+        ]
+        for filename in filenames:
+            path = Path(root, filename)
+            if path.suffix.casefold() not in text_endings:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if bot_token.search(text) or secret_assignment.search(text):
+                discovered.append(path.relative_to(PROJECT_ROOT))
 
     assert discovered == []
 

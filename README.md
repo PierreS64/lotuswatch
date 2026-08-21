@@ -37,6 +37,10 @@ security configuration and presents the results in a clear, structured form.
 - Inspect and export stored history without rerunning a scan.
 - Preview and explicitly apply guarded history retention.
 - Support recurring runs through operating-system schedulers without a daemon.
+- Select minimal notification events from added and changed findings.
+- Deliver opt-in HTTPS webhook notifications with optional HMAC-SHA256 signing.
+- Deliver opt-in bounded plain-text Telegram Bot API notifications.
+- Preview notification selection without resolving secrets or contacting providers.
 - Verify formatting, linting, and tests on Python 3.12, 3.13, and 3.14 in CI.
 
 ## Requirements
@@ -224,6 +228,48 @@ stored only after validation and is compared automatically with the newest
 earlier compatible run for the same canonical target. The command displays
 added, resolved, changed, and unchanged totals.
 
+Notifications are disabled by default. Select one or both channels and an
+explicit threshold for added findings and current snapshots of changed
+findings:
+
+```bash
+lotuswatch monitor run production --notify webhook --notify-on medium
+lotuswatch monitor run production --notify telegram --notify-on high
+lotuswatch monitor run production --notify webhook --notify telegram --notify-on high
+```
+
+Webhook delivery reads `LOTUSWATCH_WEBHOOK_URL` and the optional
+`LOTUSWATCH_WEBHOOK_SECRET`. Telegram delivery reads
+`LOTUSWATCH_TELEGRAM_BOT_TOKEN` and `LOTUSWATCH_TELEGRAM_CHAT_ID`. These values
+are resolved only when their channel actually needs delivery. They are not
+accepted as CLI values or stored in SQLite.
+
+The initial baseline does not alert by default. Resolved and unchanged
+findings do not independently trigger an alert, and a below-threshold
+comparison makes no provider request. Preview a selected event without
+resolving secrets or sending it:
+
+```bash
+lotuswatch monitor run production \
+  --notify webhook \
+  --notify-on medium \
+  --notification-dry-run
+```
+
+Webhook notifications send a minimal versioned JSON event. An optional
+HMAC-SHA256 header authenticates the exact payload bytes to a receiver sharing
+the secret; it does not encrypt the event. Telegram notifications use bounded
+plain text without Markdown or HTML formatting. Both providers use bounded
+timeouts and retries, so a timeout after remote acceptance can cause duplicate
+delivery. LotusWatch does not claim exactly-once notification delivery.
+
+Notification output appears after the stored run identifier. `DELIVERED`
+means the provider returned a validated success. `CONFIGURATION ERROR` means a
+required environment value was missing or invalid. Other provider failures
+remain controlled delivery results. Exit code `3` means the scan was stored
+but at least one explicitly requested notification failed; it does not mean
+the stored scan was lost.
+
 Inspect recent history and one complete stored report:
 
 ```bash
@@ -260,7 +306,9 @@ target query strings, and protect backups and scheduler logs. LotusWatch does
 not run a background daemon; see [`docs/monitoring.md`](docs/monitoring.md) for
 PowerShell Task Scheduler, cron, locking, backup, and privacy guidance. A safe
 illustrative session is available in
-[`examples/monitoring-session.txt`](examples/monitoring-session.txt).
+[`examples/monitoring-session.txt`](examples/monitoring-session.txt). A safe
+minimal event is available in
+[`examples/notification-event.json`](examples/notification-event.json).
 
 ### Use severity policies in CI/CD
 
@@ -279,12 +327,14 @@ are evaluated. Resolved and unchanged findings do not trigger the policy:
 lotuswatch compare baseline.json current.json --fail-on medium
 ```
 
-Exit code `0` means the command completed without meeting the selected policy
-or no policy was selected. Exit code `1` means an explicit severity policy was
-met. Exit code `2` means command usage, input, compatibility, comparison, or
-output validation failed. A policy exit is not an operational failure, and
-finding severity is not a complete risk score. See [`docs/ci.md`](docs/ci.md)
-for PowerShell, POSIX, and JSON-output examples.
+For `scan` and `compare`, exit code `0` means the command completed without
+meeting the selected policy or no policy was selected. Exit code `1` means an
+explicit severity policy was met. Exit code `2` means command usage, input,
+compatibility, comparison, or output validation failed. Notification-enabled
+`monitor run` additionally uses exit code `3` when the scan was stored but an
+explicitly requested delivery failed. A policy or notification exit is not an
+application crash, and finding severity is not a complete risk score. See
+[`docs/ci.md`](docs/ci.md) for PowerShell, POSIX, and JSON-output examples.
 
 ## Interpreting Redirect Results
 
@@ -463,6 +513,7 @@ lotuswatch/
 |   |-- comparison-report.json
 |   |-- current-report.json
 |   |-- monitoring-session.txt
+|   |-- notification-event.json
 |   `-- sample-report.json
 |-- src/
 |   `-- lotuswatch/
@@ -477,7 +528,15 @@ lotuswatch/
 |       |   |-- comparison.py
 |       |   |-- finding.py
 |       |   |-- fingerprint.py
+|       |   |-- notification.py
+|       |   |-- notification_delivery.py
 |       |   `-- report.py
+|       |-- notifications/
+|       |   |-- delivery.py
+|       |   |-- monitoring.py
+|       |   |-- policy.py
+|       |   |-- telegram.py
+|       |   `-- webhook.py
 |       |-- reporters/
 |       |   `-- json.py
 |       |-- storage/
@@ -498,8 +557,13 @@ lotuswatch/
 |   |-- storage/
 |   |-- test_cli.py
 |   |-- test_monitor_cli.py
+|   |-- test_monitor_notifications.py
 |   |-- test_monitoring.py
-|   `-- test_target.py
+|   |-- test_notification_delivery.py
+|   |-- test_notification_policy.py
+|   |-- test_telegram.py
+|   |-- test_target.py
+|   `-- test_webhook.py
 |-- LICENSE
 |-- README.md
 |-- SECURITY.md
@@ -513,7 +577,10 @@ HTTP requests, one TLS connection, and bounded CAA and TXT queries through the
 system recursive resolver. Use them at a low frequency and only against public
 endpoints and DNS names that you are permitted to inspect. Registration,
 listing, history, show, prune, and compare commands operate on explicitly
-selected local data and perform no target network requests.
+selected local data and perform no target network requests. When notification
+delivery is explicitly selected and its policy matches, `monitor run` also
+sends bounded outbound traffic to the configured HTTPS webhook and/or the
+fixed Telegram Bot API endpoint after storing the scan.
 
 Do not use LotusWatch to bypass authentication, evade protective controls,
 perform denial-of-service testing, test credentials, or exploit a system
@@ -556,6 +623,16 @@ the detailed technical scope.
 - Stored history observes LotusWatch scan results rather than every target or
   infrastructure change. Backups, scheduler logs, and retention remain the
   operator's responsibility.
+- Notifications are best effort and have no persistent queue, delivery
+  history, replay command, or exactly-once guarantee.
+- Webhook HMAC authenticates exact payload bytes but does not encrypt events;
+  receivers, endpoint availability, and secret rotation remain operator
+  responsibilities.
+- Telegram messages are bounded plain text and can omit additional triggering
+  observations. LotusWatch does not manage bot permissions, chats, or provider
+  availability.
+- Notification events and logs can reveal profile names, public targets,
+  finding identifiers, severities, titles, and comparison totals.
 - JSON reports can contain target URLs, redirect destinations, certificate
   metadata, selected header values, DNS CAA and TXT records, diagnostics, and
   finding evidence. Comparison reports can contain finding snapshots from both
@@ -584,8 +661,10 @@ the detailed technical scope.
 - [x] Local target registry and versioned SQLite history
 - [x] On-demand monitoring with automatic previous-run comparison
 - [x] History inspection, explicit retention, and scheduler guidance
+- [x] Opt-in HTTPS webhook and Telegram notifications
 - [ ] Built-in background daemon
-- [ ] Email and Telegram alerts
+- [ ] Email notifications
+- [ ] Persistent notification queue and delivery history
 - [ ] Web dashboard
 
 ## Contributing

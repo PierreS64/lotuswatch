@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "lotuswatch_version": "0.1.0-alpha.5",
+  "lotuswatch_version": "0.1.0-alpha.6",
   "target": {
     "input": "demo.example",
     "normalized_url": "https://demo.example/"

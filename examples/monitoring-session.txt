@@ -20,7 +20,7 @@ Findings: 4
 Initial baseline
 This is the first compatible stored run; no comparison is available yet.
 
-$ lotuswatch monitor run demo --database ./demo-monitoring.db
+$ lotuswatch monitor run demo --database ./demo-monitoring.db --notify webhook --notify-on medium --notification-dry-run
 LotusWatch monitoring run stored
 Profile: demo
 Target: https://demo.example/
@@ -34,6 +34,14 @@ Added: 1
 Resolved: 1
 Changed: 1
 Unchanged: 1
+
+Notifications
+Threshold: medium
+NOTIFICATION DRY RUN
+Event ID: 33333333-3333-4333-8333-333333333333
+Triggering findings: 1
+- changed medium LW-HEADER-003: Content Security Policy is missing
+webhook: DRY RUN (provider request not sent)
 
 $ lotuswatch monitor history demo --limit 2 --database ./demo-monitoring.db
 Monitoring history: demo (2)

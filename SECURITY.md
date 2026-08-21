@@ -49,6 +49,9 @@ sample reports:
   historical infrastructure details
 - Monitoring databases, SQLite journals, WAL or shared-memory files, backups,
   scheduler logs, or exported historical reports
+- Webhook endpoint URLs, HMAC secrets, Telegram bot tokens, or Telegram chat
+  identifiers
+- Notification events, terminal captures, delivery logs, or provider responses
 
 LotusWatch reports can contain the original target, normalized URL, redirect
 destinations, HTTP status codes, certificate metadata, selected security-header
@@ -72,6 +75,27 @@ journal, WAL, and shared-memory companions. Stop scheduled jobs before making a
 consistent backup, protect scheduler output, and review stored reports before
 exporting, sharing, or committing them. Retention is explicit and does not
 replace a backup and data-handling policy.
+
+Notification events are intentionally smaller than scan reports but remain
+sensitive. They contain the monitored profile and canonical target, event and
+run identifiers, timestamps, the selected threshold, comparison totals, and
+bounded finding identifiers, severities, titles, statuses, and fingerprints.
+They do not contain complete reports, evidence, descriptions, recommendations,
+certificate metadata, header values, DNS records, or check diagnostics.
+
+Notification credentials are resolved only from the explicitly named
+environment variables required by a selected provider. LotusWatch does not
+accept them as CLI values, store them in SQLite, or include them in public
+delivery results. Protect scheduler and process environments. A webhook URL
+can contain sensitive query parameters, and a Telegram bot token forms part of
+the Bot API request path; neither complete URL should be logged or shared.
+
+Optional webhook HMAC-SHA256 authenticates the exact transmitted bytes when
+the receiver protects the same secret. It does not encrypt the event, sign the
+stored scan, establish report provenance, or prevent replay. Telegram content
+uses plain text to avoid formatting injection and relies on provider HTTPS for
+transport protection. LotusWatch does not retain webhook response bodies or
+Telegram provider responses in delivery results or history.
 
 ## Authorized Use
 
@@ -99,6 +123,15 @@ Registration, listing, history, show, enable, disable, and prune operations use
 only the selected local database. LotusWatch does not install a daemon or
 coordinate overlapping scheduler jobs; configure recurring runs at a safe
 frequency and use one process per database.
+
+Notifications add outbound provider traffic only when explicitly selected,
+after the monitored scan has been stored, and only when added or changed
+current findings meet the selected threshold. Webhook delivery contacts the
+configured public HTTPS endpoint. Telegram delivery contacts only the fixed
+official Bot API origin and `sendMessage` method. Use only provider accounts,
+chat destinations, and webhook receivers that you are authorized to access.
+LotusWatch does not retrieve updates, chat history, bot profiles, or unrelated
+provider data.
 
 Do not use LotusWatch to:
 
@@ -128,6 +161,19 @@ exploitation.
 Severity-based exit policies are opt-in automation decisions. Exit code `1`
 means the selected threshold matched a finding; it does not mean LotusWatch
 crashed, prove exploitability, or provide a complete security risk score.
+
+Notification exit code `3` is a partial-success state. It means the monitored
+scan was stored but one or more explicitly requested deliveries failed. It
+does not indicate that the stored run was deleted, rolled back, or invalid.
+Initial baselines do not alert by default, and resolved or unchanged findings
+do not independently trigger the current notification policy.
+
+Notification delivery is best effort. Bounded retries can duplicate a message
+if the provider accepted a request but its response was lost. LotusWatch does
+not provide exactly-once delivery, a persistent queue, delivery replay,
+provider-response history, automatic credential rotation, or verification of
+provider-side processing. Severity thresholds remain operator-selected
+automation policies rather than complete risk scores.
 
 SQLite locking uses a bounded busy timeout and is not a substitute for
 multi-process coordination. Monitoring history can contain false positives,
