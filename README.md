@@ -36,6 +36,7 @@ security configuration and presents the results in a clear, structured form.
 - Store validated scan history and compare each run with its previous baseline.
 - Inspect and export stored history without rerunning a scan.
 - Preview and explicitly apply guarded history retention.
+- Check local SQLite integrity and create validated non-overwriting backups.
 - Support recurring runs through operating-system schedulers without a daemon.
 - Select minimal notification events from added and changed findings.
 - Deliver opt-in HTTPS webhook notifications with optional HMAC-SHA256 signing.
@@ -330,6 +331,19 @@ illustrative session is available in
 minimal event is available in
 [`examples/notification-event.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/notification-event.json).
 
+Check an explicit existing monitoring database without changing it, then make
+a validated online backup without overwriting an existing path:
+
+```bash
+lotuswatch monitor database check --database /absolute/path/monitoring.db
+lotuswatch monitor database backup /absolute/path/backup.db --database /absolute/path/monitoring.db
+```
+
+The check and backup commands perform no scan or provider request. Backups
+contain complete sensitive monitoring history and are not encrypted,
+authenticated, or signed. See the monitoring guide for path, locking,
+permission, and retention boundaries.
+
 ### Use severity policies in CI/CD
 
 Commands keep their normal exit behavior unless `--fail-on` is explicitly
@@ -608,6 +622,7 @@ lotuswatch/
 |   |-- reporters/
 |   |-- storage/
 |   |-- test_cli.py
+|   |-- test_database_cli.py
 |   |-- test_monitor_cli.py
 |   |-- test_monitor_notifications.py
 |   |-- test_monitoring.py
@@ -631,11 +646,12 @@ The scan command and each `monitor run` command make a small number of ordinary
 HTTP requests, one TLS connection, and bounded CAA and TXT queries through the
 system recursive resolver. Use them at a low frequency and only against public
 endpoints and DNS names that you are permitted to inspect. Registration,
-listing, history, show, prune, and compare commands operate on explicitly
-selected local data and perform no target network requests. When notification
-delivery is explicitly selected and its policy matches, `monitor run` also
-sends bounded outbound traffic to the configured HTTPS webhook and/or the
-fixed Telegram Bot API endpoint after storing the scan.
+listing, enable, disable, history, show, prune, database check, database backup,
+and compare commands operate on explicitly selected local data and perform no
+target network requests. When notification delivery is explicitly selected and
+its policy matches, `monitor run` also sends bounded outbound traffic to the
+configured HTTPS webhook and/or the fixed Telegram Bot API endpoint after
+storing the scan.
 
 Do not use LotusWatch to bypass authentication, evade protective controls,
 perform denial-of-service testing, test credentials, or exploit a system

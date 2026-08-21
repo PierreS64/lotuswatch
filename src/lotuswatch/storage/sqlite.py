@@ -1,9 +1,12 @@
 import json
 import os
+import secrets
 import sqlite3
+import stat
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from stat import S_ISREG
 from uuid import UUID
 
@@ -11,10 +14,14 @@ from pydantic import ValidationError
 
 from lotuswatch.exceptions import (
     MonitoringStoreError,
+    StoreBackupAlreadyExistsError,
+    StoreBackupDestinationError,
+    StoreBackupError,
     StoreCompatibilityError,
     StoreConflictError,
     StoredReportTooLargeError,
     StoreInitializationError,
+    StoreIntegrityError,
     StoreReadError,
     StoreValidationError,
     StoreWriteError,
@@ -23,6 +30,8 @@ from lotuswatch.models import ScanReport
 from lotuswatch.storage.base import (
     DEFAULT_QUERY_LIMIT,
     MAX_QUERY_LIMIT,
+    DatabaseBackupResult,
+    DatabaseCheckResult,
     MonitoredTarget,
     ScanRunMetadata,
     StoredScanRun,
@@ -33,27 +42,33 @@ MONITORING_SCHEMA_VERSION = "1"
 MAX_STORED_REPORT_SIZE_BYTES = 5 * 1024 * 1024
 DEFAULT_BUSY_TIMEOUT_SECONDS = 5.0
 MAX_DELETE_BATCH_SIZE = 400
+MAX_DATABASE_CHECK_TARGETS = 10_000
+MAX_DATABASE_CHECK_RUNS = 100_000
+DATABASE_CHECK_BATCH_SIZE = 200
 _SQLITE_HEADER = b"SQLite format 3\x00"
-_REQUIRED_TABLE_COLUMNS = {
-    "schema_metadata": {"key", "value"},
+_EXPECTED_TABLE_COLUMNS = {
+    "schema_metadata": {
+        "key": ("TEXT", 0, 1),
+        "value": ("TEXT", 1, 0),
+    },
     "monitored_targets": {
-        "id",
-        "name",
-        "original_target",
-        "normalized_url",
-        "enabled",
-        "created_at",
-        "updated_at",
+        "id": ("TEXT", 0, 1),
+        "name": ("TEXT", 1, 0),
+        "original_target": ("TEXT", 1, 0),
+        "normalized_url": ("TEXT", 1, 0),
+        "enabled": ("INTEGER", 1, 0),
+        "created_at": ("TEXT", 1, 0),
+        "updated_at": ("TEXT", 1, 0),
     },
     "scan_runs": {
-        "id",
-        "target_id",
-        "report_schema_version",
-        "lotuswatch_version",
-        "scanned_at",
-        "stored_at",
-        "report_json",
-        "report_size_bytes",
+        "id": ("TEXT", 0, 1),
+        "target_id": ("TEXT", 1, 0),
+        "report_schema_version": ("TEXT", 1, 0),
+        "lotuswatch_version": ("TEXT", 1, 0),
+        "scanned_at": ("TEXT", 1, 0),
+        "stored_at": ("TEXT", 1, 0),
+        "report_json": ("TEXT", 1, 0),
+        "report_size_bytes": ("INTEGER", 1, 0),
     },
 }
 
@@ -96,6 +111,80 @@ class SQLiteMonitoringStore:
 
         if created:
             self._restrict_new_database_permissions()
+
+    def check_database(self) -> DatabaseCheckResult:
+        """Inspect an existing database without creating or modifying it."""
+
+        self._require_existing_database_file()
+        try:
+            with self._readonly_connection() as connection:
+                self._validate_physical_integrity(connection)
+                tables = self._user_table_names(connection)
+                self._validate_schema_v1(connection, tables)
+                self._validate_foreign_key_state(connection)
+                self._validate_logical_value_bounds(connection)
+                target_count = self._bounded_table_count(
+                    connection,
+                    table="monitored_targets",
+                    maximum=MAX_DATABASE_CHECK_TARGETS,
+                )
+                run_count = self._bounded_table_count(
+                    connection,
+                    table="scan_runs",
+                    maximum=MAX_DATABASE_CHECK_RUNS,
+                )
+                targets = self._inspect_all_targets(connection, target_count)
+                self._inspect_all_runs(connection, run_count, targets)
+        except MonitoringStoreError:
+            raise
+        except sqlite3.DatabaseError as exc:
+            raise StoreIntegrityError(
+                "Monitoring database integrity inspection failed."
+            ) from exc
+
+        return DatabaseCheckResult(
+            schema_version=MONITORING_SCHEMA_VERSION,
+            targets_inspected=target_count,
+            runs_inspected=run_count,
+        )
+
+    def backup_database(
+        self,
+        destination: str | os.PathLike[str],
+    ) -> DatabaseBackupResult:
+        """Create and validate a consistent backup without replacing a path."""
+
+        self.check_database()
+        destination_path = self._validate_backup_destination(destination)
+        temporary_path = self._create_private_backup_file(destination_path)
+        finalized = False
+
+        try:
+            self._copy_database_online(temporary_path)
+            validation = SQLiteMonitoringStore(
+                temporary_path,
+                busy_timeout_seconds=self.busy_timeout_seconds,
+            ).check_database()
+            self._finalize_backup(temporary_path, destination_path)
+            finalized = True
+        except MonitoringStoreError:
+            raise
+        except sqlite3.DatabaseError as exc:
+            raise StoreBackupError(
+                "Unable to create a consistent monitoring database backup."
+            ) from exc
+        except OSError as exc:
+            raise StoreBackupError(
+                "Unable to finalize monitoring database backup safely."
+            ) from exc
+        finally:
+            if not finalized:
+                self._remove_owned_temporary_file(temporary_path)
+
+        return DatabaseBackupResult(
+            destination=destination_path,
+            validation=validation,
+        )
 
     def create_target(self, target: MonitoredTarget) -> MonitoredTarget:
         """Persist one validated monitoring target."""
@@ -431,21 +520,31 @@ class SQLiteMonitoringStore:
 
     def _prepare_database_file(self) -> bool:
         path = self.database_path
-
-        if path.is_symlink():
-            raise StoreInitializationError(
-                f"Monitoring database path must not be a symbolic link: {path}"
-            )
-
-        try:
-            file_stat = path.stat()
-        except FileNotFoundError:
+        if not os.path.lexists(path):
             return self._create_empty_database_file()
+
+        self._validate_existing_database_file(path)
+        return False
+
+    def _require_existing_database_file(self) -> None:
+        if not os.path.lexists(self.database_path):
+            raise StoreInitializationError(
+                f"Monitoring database does not exist: {self.database_path}"
+            )
+        self._validate_existing_database_file(self.database_path)
+
+    def _validate_existing_database_file(self, path: Path) -> None:
+        try:
+            file_stat = path.lstat()
         except OSError as exc:
             raise StoreInitializationError(
                 f"Unable to inspect monitoring database: {path}"
             ) from exc
 
+        if self._is_link_or_reparse(path, file_stat):
+            raise StoreInitializationError(
+                f"Monitoring database path must not be a link or reparse point: {path}"
+            )
         if not S_ISREG(file_stat.st_mode):
             raise StoreInitializationError(
                 f"Monitoring database path is not a regular file: {path}"
@@ -468,7 +567,15 @@ class SQLiteMonitoringStore:
                 f"Existing file is not a supported SQLite database: {path}"
             )
 
-        return False
+    def _is_link_or_reparse(self, path: Path, file_stat: os.stat_result) -> bool:
+        reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        file_attributes = getattr(file_stat, "st_file_attributes", 0)
+        is_junction = getattr(path, "is_junction", lambda: False)
+        return bool(
+            path.is_symlink()
+            or is_junction()
+            or (reparse_attribute and file_attributes & reparse_attribute)
+        )
 
     def _create_empty_database_file(self) -> bool:
         path = self.database_path
@@ -508,8 +615,11 @@ class SQLiteMonitoringStore:
         return True
 
     def _restrict_new_database_permissions(self) -> None:
+        self._restrict_file_permissions(self.database_path)
+
+    def _restrict_file_permissions(self, path: Path) -> None:
         try:
-            self.database_path.chmod(0o600)
+            path.chmod(0o600)
         except OSError:
             return
 
@@ -537,6 +647,197 @@ class SQLiteMonitoringStore:
             connection.close()
 
     @contextmanager
+    def _readonly_connection(self) -> Iterator[sqlite3.Connection]:
+        try:
+            database_uri = f"{self.database_path.as_uri()}?mode=ro"
+            connection = sqlite3.connect(
+                database_uri,
+                uri=True,
+                timeout=self.busy_timeout_seconds,
+                isolation_level=None,
+            )
+        except (OSError, sqlite3.Error) as exc:
+            raise StoreInitializationError(
+                f"Unable to open monitoring database: {self.database_path}"
+            ) from exc
+
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA query_only = ON")
+            connection.execute("PRAGMA foreign_keys = ON")
+            timeout_ms = int(self.busy_timeout_seconds * 1_000)
+            connection.execute(f"PRAGMA busy_timeout = {timeout_ms}")
+            connection.execute("PRAGMA trusted_schema = OFF")
+            connection.execute("BEGIN")
+            yield connection
+        finally:
+            try:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            finally:
+                connection.close()
+
+    def _validate_backup_destination(
+        self,
+        destination: str | os.PathLike[str],
+    ) -> Path:
+        if not isinstance(destination, (str, os.PathLike)):
+            raise StoreBackupDestinationError("Backup destination path is invalid.")
+        try:
+            raw_destination = os.fspath(destination)
+        except TypeError as exc:
+            raise StoreBackupDestinationError(
+                "Backup destination path is invalid."
+            ) from exc
+        if (
+            not isinstance(raw_destination, str)
+            or not raw_destination.strip()
+            or "\x00" in raw_destination
+        ):
+            raise StoreBackupDestinationError(
+                "Backup destination path must not be empty."
+            )
+
+        try:
+            destination_path = Path(os.path.abspath(Path(raw_destination).expanduser()))
+            source_path = self.database_path.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise StoreBackupDestinationError(
+                "Backup destination path cannot be resolved safely."
+            ) from exc
+
+        if os.path.lexists(destination_path):
+            try:
+                if os.path.samefile(source_path, destination_path):
+                    raise StoreBackupDestinationError(
+                        "Backup destination must differ from the source database."
+                    )
+            except OSError:
+                pass
+            raise StoreBackupAlreadyExistsError(
+                f"Backup destination already exists: {destination_path}"
+            )
+
+        parent = destination_path.parent
+        try:
+            parent_stat = parent.lstat()
+        except OSError as exc:
+            raise StoreBackupDestinationError(
+                f"Backup destination directory is unavailable: {parent}"
+            ) from exc
+        if self._is_link_or_reparse(parent, parent_stat) or not parent.is_dir():
+            raise StoreBackupDestinationError(
+                f"Backup destination parent must be a real directory: {parent}"
+            )
+
+        try:
+            resolved_candidate = parent.resolve(strict=True) / destination_path.name
+        except (OSError, RuntimeError) as exc:
+            raise StoreBackupDestinationError(
+                f"Backup destination directory is unavailable: {parent}"
+            ) from exc
+        if os.path.normcase(str(resolved_candidate)) == os.path.normcase(
+            str(source_path)
+        ):
+            raise StoreBackupDestinationError(
+                "Backup destination must differ from the source database."
+            )
+        return destination_path
+
+    def _create_private_backup_file(self, destination: Path) -> Path:
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        for _attempt in range(10):
+            candidate = destination.parent / (
+                f".{destination.name}.lotuswatch-{secrets.token_hex(12)}.tmp"
+            )
+            try:
+                descriptor = os.open(candidate, flags, 0o600)
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                raise StoreBackupError(
+                    "Unable to create a private temporary backup file."
+                ) from exc
+            else:
+                os.close(descriptor)
+
+            try:
+                candidate_stat = candidate.lstat()
+            except OSError as exc:
+                self._remove_owned_temporary_file(candidate)
+                raise StoreBackupError(
+                    "Unable to inspect the temporary backup file."
+                ) from exc
+            if self._is_link_or_reparse(candidate, candidate_stat) or not S_ISREG(
+                candidate_stat.st_mode
+            ):
+                self._remove_owned_temporary_file(candidate)
+                raise StoreBackupError("Temporary backup path is not a regular file.")
+            return candidate
+
+        raise StoreBackupError("Unable to allocate a private temporary backup file.")
+
+    def _copy_database_online(self, destination: Path) -> None:
+        try:
+            with (
+                self._readonly_connection() as source_connection,
+                closing(
+                    sqlite3.connect(
+                        destination,
+                        timeout=self.busy_timeout_seconds,
+                        isolation_level=None,
+                    )
+                ) as destination_connection,
+            ):
+                source_connection.backup(
+                    destination_connection,
+                    pages=256,
+                    sleep=0.05,
+                )
+        except MonitoringStoreError:
+            raise
+        except sqlite3.DatabaseError as exc:
+            raise StoreBackupError(
+                "Unable to copy monitoring history into the backup."
+            ) from exc
+        self._restrict_file_permissions(destination)
+
+    def _finalize_backup(self, temporary: Path, destination: Path) -> None:
+        if os.path.lexists(destination):
+            raise StoreBackupAlreadyExistsError(
+                f"Backup destination already exists: {destination}"
+            )
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as exc:
+            raise StoreBackupAlreadyExistsError(
+                f"Backup destination already exists: {destination}"
+            ) from exc
+        except OSError as exc:
+            raise StoreBackupError(
+                "Unable to finalize monitoring database backup safely."
+            ) from exc
+
+        self._restrict_file_permissions(destination)
+        try:
+            temporary.unlink()
+        except OSError:
+            return
+
+    def _remove_owned_temporary_file(self, path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            return
+
+    @contextmanager
     def _transaction(self, connection: sqlite3.Connection) -> Iterator[None]:
         connection.execute("BEGIN IMMEDIATE")
         try:
@@ -556,6 +857,181 @@ class SQLiteMonitoringStore:
             """
         ).fetchall()
         return {str(row["name"]) for row in rows}
+
+    def _validate_physical_integrity(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        rows = connection.execute("PRAGMA integrity_check(1)").fetchmany(2)
+        if len(rows) != 1 or rows[0][0] != "ok":
+            raise StoreIntegrityError(
+                "Monitoring database failed its physical integrity check."
+            )
+
+    def _validate_foreign_key_state(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        state = connection.execute("PRAGMA foreign_keys").fetchone()
+        if state is None or state[0] != 1:
+            raise StoreIntegrityError(
+                "Monitoring database foreign-key enforcement is unavailable."
+            )
+
+        definitions = connection.execute(
+            "PRAGMA foreign_key_list(scan_runs)"
+        ).fetchall()
+        expected = (
+            "monitored_targets",
+            "target_id",
+            "id",
+            "RESTRICT",
+            "RESTRICT",
+        )
+        observed = {
+            (
+                str(row["table"]),
+                str(row["from"]),
+                str(row["to"]),
+                str(row["on_update"]).upper(),
+                str(row["on_delete"]).upper(),
+            )
+            for row in definitions
+        }
+        if expected not in observed:
+            raise StoreCompatibilityError(
+                "Monitoring database foreign-key schema is incompatible."
+            )
+
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise StoreIntegrityError(
+                "Monitoring database contains an invalid target relationship."
+            )
+
+    def _bounded_table_count(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        table: str,
+        maximum: int,
+    ) -> int:
+        if table not in {"monitored_targets", "scan_runs"}:
+            raise StoreIntegrityError("Unsupported database inspection table.")
+        row = connection.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
+        if row is None or not isinstance(row["count"], int) or row["count"] < 0:
+            raise StoreIntegrityError("Monitoring database row count is invalid.")
+        count = int(row["count"])
+        if count > maximum:
+            raise StoreIntegrityError(
+                "Monitoring database exceeds the bounded inspection limit."
+            )
+        return count
+
+    def _validate_logical_value_bounds(
+        self,
+        connection: sqlite3.Connection,
+    ) -> None:
+        invalid_target = connection.execute(
+            """
+            SELECT 1
+            FROM monitored_targets
+            WHERE typeof(id) != 'text' OR length(id) > 128
+               OR typeof(name) != 'text' OR length(name) > 100
+               OR typeof(original_target) != 'text'
+               OR length(CAST(original_target AS BLOB)) > 16384
+               OR typeof(normalized_url) != 'text'
+               OR length(CAST(normalized_url AS BLOB)) > 16384
+               OR typeof(enabled) != 'integer'
+               OR typeof(created_at) != 'text' OR length(created_at) > 128
+               OR typeof(updated_at) != 'text' OR length(updated_at) > 128
+            LIMIT 1
+            """
+        ).fetchone()
+        if invalid_target is not None:
+            raise StoreIntegrityError(
+                "Stored monitoring target metadata exceeds its supported bounds."
+            )
+
+        invalid_run = connection.execute(
+            """
+            SELECT 1
+            FROM scan_runs
+            WHERE typeof(id) != 'text' OR length(id) > 128
+               OR typeof(target_id) != 'text' OR length(target_id) > 128
+               OR typeof(report_schema_version) != 'text'
+               OR length(report_schema_version) > 32
+               OR typeof(lotuswatch_version) != 'text'
+               OR length(lotuswatch_version) > 100
+               OR typeof(scanned_at) != 'text' OR length(scanned_at) > 128
+               OR typeof(stored_at) != 'text' OR length(stored_at) > 128
+               OR typeof(report_json) != 'text'
+               OR typeof(report_size_bytes) != 'integer'
+               OR report_size_bytes < 0
+               OR report_size_bytes > ?
+               OR length(CAST(report_json AS BLOB)) != report_size_bytes
+               OR length(CAST(report_json AS BLOB)) > ?
+            LIMIT 1
+            """,
+            (MAX_STORED_REPORT_SIZE_BYTES, MAX_STORED_REPORT_SIZE_BYTES),
+        ).fetchone()
+        if invalid_run is not None:
+            raise StoreIntegrityError(
+                "Stored scan metadata or report payload exceeds its supported bounds."
+            )
+
+    def _inspect_all_targets(
+        self,
+        connection: sqlite3.Connection,
+        expected_count: int,
+    ) -> dict[UUID, MonitoredTarget]:
+        cursor = connection.execute(
+            """
+            SELECT id, name, original_target, normalized_url, enabled,
+                   created_at, updated_at
+            FROM monitored_targets
+            ORDER BY id ASC
+            """
+        )
+        inspected: dict[UUID, MonitoredTarget] = {}
+        while rows := cursor.fetchmany(DATABASE_CHECK_BATCH_SIZE):
+            for row in rows:
+                target = self._target_from_row(row)
+                if target.id in inspected:
+                    raise StoreIntegrityError(
+                        "Monitoring database contains duplicate target metadata."
+                    )
+                inspected[target.id] = target
+        if len(inspected) != expected_count:
+            raise StoreIntegrityError(
+                "Monitoring target count changed during inspection."
+            )
+        return inspected
+
+    def _inspect_all_runs(
+        self,
+        connection: sqlite3.Connection,
+        expected_count: int,
+        targets: dict[UUID, MonitoredTarget],
+    ) -> None:
+        cursor = connection.execute(self._scan_run_select_sql("ORDER BY id ASC"))
+        inspected = 0
+        while rows := cursor.fetchmany(DATABASE_CHECK_BATCH_SIZE):
+            for row in rows:
+                run = self._stored_run_from_row(row)
+                target = targets.get(run.metadata.target_id)
+                if target is None:
+                    raise StoreIntegrityError(
+                        "Stored scan run references an unknown monitoring target."
+                    )
+                if run.report.target.normalized_url != target.normalized_url:
+                    raise StoreIntegrityError(
+                        "Stored scan report target is inconsistent."
+                    )
+                inspected += 1
+        if inspected != expected_count:
+            raise StoreIntegrityError(
+                "Stored scan-run count changed during inspection."
+            )
 
     def _create_schema_v1(self, connection: sqlite3.Connection) -> None:
         connection.execute(
@@ -618,22 +1094,37 @@ class SQLiteMonitoringStore:
             )
 
         row = connection.execute(
-            "SELECT value FROM schema_metadata WHERE key = ?",
-            ("schema_version",),
+            """
+            SELECT 1 AS supported
+            FROM schema_metadata
+            WHERE key = ? AND value = ?
+            LIMIT 1
+            """,
+            ("schema_version", MONITORING_SCHEMA_VERSION),
         ).fetchone()
-        if row is None or row["value"] != MONITORING_SCHEMA_VERSION:
+        if row is None:
             raise StoreCompatibilityError(
                 "Monitoring database schema version is unsupported."
             )
 
-        required_tables = set(_REQUIRED_TABLE_COLUMNS)
+        required_tables = set(_EXPECTED_TABLE_COLUMNS)
         if not required_tables.issubset(tables):
             raise StoreCompatibilityError("Monitoring database schema is incomplete.")
 
-        for table, required_columns in _REQUIRED_TABLE_COLUMNS.items():
+        for table, expected_columns in _EXPECTED_TABLE_COLUMNS.items():
             rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
-            columns = {str(column["name"]) for column in rows}
-            if not required_columns.issubset(columns):
+            columns = {
+                str(column["name"]): (
+                    str(column["type"]).upper(),
+                    int(column["notnull"]),
+                    int(column["pk"]),
+                )
+                for column in rows
+            }
+            if any(
+                columns.get(name) != definition
+                for name, definition in expected_columns.items()
+            ):
                 raise StoreCompatibilityError(
                     "Monitoring database schema is incompatible."
                 )
@@ -663,6 +1154,17 @@ class SQLiteMonitoringStore:
         return None if row is None else self._target_from_row(row)
 
     def _target_from_row(self, row: sqlite3.Row) -> MonitoredTarget:
+        enabled = row["enabled"]
+        if (
+            not isinstance(enabled, int)
+            or isinstance(enabled, bool)
+            or enabled
+            not in {
+                0,
+                1,
+            }
+        ):
+            raise StoreReadError("Stored monitoring target state is invalid.")
         try:
             return MonitoredTarget.model_validate(
                 {
@@ -670,7 +1172,7 @@ class SQLiteMonitoringStore:
                     "name": row["name"],
                     "original_target": row["original_target"],
                     "normalized_url": row["normalized_url"],
-                    "enabled": bool(row["enabled"]),
+                    "enabled": bool(enabled),
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                 }
@@ -840,7 +1342,10 @@ class SQLiteMonitoringStore:
 
 
 __all__ = [
+    "DATABASE_CHECK_BATCH_SIZE",
     "DEFAULT_BUSY_TIMEOUT_SECONDS",
+    "MAX_DATABASE_CHECK_RUNS",
+    "MAX_DATABASE_CHECK_TARGETS",
     "MAX_DELETE_BATCH_SIZE",
     "MAX_STORED_REPORT_SIZE_BYTES",
     "MONITORING_SCHEMA_VERSION",

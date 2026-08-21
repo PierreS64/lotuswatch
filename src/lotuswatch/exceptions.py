@@ -78,8 +78,24 @@ class StoreReadError(MonitoringStoreError):
     """Raised when monitoring data cannot be read safely."""
 
 
+class StoreIntegrityError(StoreReadError):
+    """Raised when a monitoring database fails a bounded integrity check."""
+
+
 class StoreWriteError(MonitoringStoreError):
     """Raised when monitoring data cannot be persisted atomically."""
+
+
+class StoreBackupError(StoreWriteError):
+    """Raised when a monitoring database cannot be backed up safely."""
+
+
+class StoreBackupDestinationError(StoreBackupError):
+    """Raised when a requested backup destination is unsafe."""
+
+
+class StoreBackupAlreadyExistsError(StoreBackupDestinationError):
+    """Raised when a backup would replace an existing filesystem entry."""
 
 
 class StoredReportTooLargeError(StoreValidationError):
