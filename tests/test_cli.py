@@ -5,7 +5,11 @@ from pathlib import Path
 from rich.text import Text
 from typer.testing import CliRunner, Result
 
+import lotuswatch.cli
+import lotuswatch.notifications
 import lotuswatch.scanner
+import lotuswatch.storage
+from lotuswatch import __version__
 from lotuswatch.checks import (
     CAACheckResult,
     CAACheckStatus,
@@ -256,6 +260,31 @@ def test_help_command() -> None:
 
     assert result.exit_code == 0
     assert "Monitor websites" in output
+    assert "--version" in output
+
+
+def test_version_option_has_no_scan_storage_or_secret_side_effects(
+    monkeypatch,
+) -> None:
+    def unexpected_call(*_args, **_kwargs):
+        raise AssertionError("version output must not cross a side-effect boundary")
+
+    monkeypatch.setattr(lotuswatch.cli, "execute_scan", unexpected_call)
+    monkeypatch.setattr(
+        lotuswatch.storage.SQLiteMonitoringStore,
+        "initialize",
+        unexpected_call,
+    )
+    monkeypatch.setattr(
+        lotuswatch.notifications.EnvironmentSecretProvider,
+        "get_secret",
+        unexpected_call,
+    )
+
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert plain_output(result).strip() == __version__
 
 
 def test_scan_runs_all_checks_and_renders_sections_in_order(monkeypatch) -> None:

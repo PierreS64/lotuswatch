@@ -70,8 +70,24 @@ MAX_CONSOLE_DNS_VALUE_LENGTH = 120
 MAX_CONSOLE_COMPARISON_VALUE_LENGTH = 240
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
 @app.callback()
-def main() -> None:
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the installed LotusWatch version and exit.",
+        ),
+    ] = False,
+) -> None:
     """LotusWatch website security monitoring tool."""
 
 

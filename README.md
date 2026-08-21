@@ -51,6 +51,19 @@ security configuration and presents the results in a clear, structured form.
 The project is currently developed with Python 3.14 on Windows. GitHub Actions
 also verifies Python 3.12, 3.13, and 3.14 on Linux.
 
+## Package Names
+
+LotusWatch uses three related names:
+
+- `lotuswatch-security` is the Python distribution name used by package
+  indexes and installation tools.
+- `lotuswatch` is the command installed into the active environment.
+- `lotuswatch` is also the Python import package used by library consumers.
+
+The project is not published to PyPI during the alpha.6 release. Until the
+packaging workflow is complete, install contributors' checkouts in editable
+mode as described below.
+
 ## Installation
 
 ### 1. Clone the repository
@@ -95,6 +108,13 @@ Display the main help page:
 
 ```bash
 lotuswatch --help
+```
+
+Display the installed version without running a scan or opening a monitoring
+database:
+
+```bash
+lotuswatch --version
 ```
 
 Display help for the scan command:
@@ -148,7 +168,7 @@ The output file includes:
 LotusWatch refuses to overwrite an existing report. Choose a new output path
 or move the previous report before running the command again.
 
-See [`examples/sample-report.json`](examples/sample-report.json) for a safe,
+See [`examples/sample-report.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/sample-report.json) for a safe,
 synthetic scan example using the reserved `demo.example` domain.
 
 ### Compare two scan reports
@@ -187,9 +207,9 @@ reported as `changed`. A fingerprint is a stable identifier, not anonymization,
 and it is not a digital signature or proof that a report is authentic.
 
 Safe synthetic inputs and expected output are available in
-[`examples/baseline-report.json`](examples/baseline-report.json),
-[`examples/current-report.json`](examples/current-report.json), and
-[`examples/comparison-report.json`](examples/comparison-report.json).
+[`examples/baseline-report.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/baseline-report.json),
+[`examples/current-report.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/current-report.json), and
+[`examples/comparison-report.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/comparison-report.json).
 
 ### Store local monitoring history
 
@@ -303,12 +323,12 @@ Monitoring databases and exports can contain URLs, certificate metadata,
 headers, DNS values, diagnostics, and evidence. They are not encrypted or
 authenticated by LotusWatch. Restrict filesystem access, do not put secrets in
 target query strings, and protect backups and scheduler logs. LotusWatch does
-not run a background daemon; see [`docs/monitoring.md`](docs/monitoring.md) for
+not run a background daemon; see [`docs/monitoring.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/monitoring.md) for
 PowerShell Task Scheduler, cron, locking, backup, and privacy guidance. A safe
 illustrative session is available in
-[`examples/monitoring-session.txt`](examples/monitoring-session.txt). A safe
+[`examples/monitoring-session.txt`](https://github.com/PierreS64/lotuswatch/blob/main/examples/monitoring-session.txt). A safe
 minimal event is available in
-[`examples/notification-event.json`](examples/notification-event.json).
+[`examples/notification-event.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/notification-event.json).
 
 ### Use severity policies in CI/CD
 
@@ -334,7 +354,7 @@ compatibility, comparison, or output validation failed. Notification-enabled
 `monitor run` additionally uses exit code `3` when the scan was stored but an
 explicitly requested delivery failed. A policy or notification exit is not an
 application crash, and finding severity is not a complete risk score. See
-[`docs/ci.md`](docs/ci.md) for PowerShell, POSIX, and JSON-output examples.
+[`docs/ci.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/ci.md) for PowerShell, POSIX, and JSON-output examples.
 
 ## Interpreting Redirect Results
 
@@ -587,7 +607,7 @@ perform denial-of-service testing, test credentials, or exploit a system
 without explicit authorization.
 
 Users are responsible for complying with applicable laws, contracts, terms of
-service, and acceptable-use policies. See [`docs/scope.md`](docs/scope.md) for
+service, and acceptable-use policies. See [`docs/scope.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/scope.md) for
 the detailed technical scope.
 
 ## Limitations
@@ -678,9 +698,9 @@ keys, or sensitive scan reports in issues or pull requests.
 
 ## Security
 
-Read [`SECURITY.md`](SECURITY.md) before reporting a vulnerability in
+Read [`SECURITY.md`](https://github.com/PierreS64/lotuswatch/blob/main/SECURITY.md) before reporting a vulnerability in
 LotusWatch. Do not disclose exploitable details in a public issue.
 
 ## License
 
-LotusWatch is released under the [MIT License](LICENSE).
+LotusWatch is released under the [MIT License](https://github.com/PierreS64/lotuswatch/blob/main/LICENSE).
