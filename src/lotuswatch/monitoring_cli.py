@@ -13,11 +13,21 @@ from lotuswatch import __version__
 from lotuswatch.exceptions import (
     MonitoringRunError,
     MonitoringStoreError,
+    NotificationError,
+    NotificationPolicyError,
     ReportError,
     StoreConflictError,
     TargetValidationError,
 )
-from lotuswatch.models import Finding, Severity
+from lotuswatch.models import (
+    Finding,
+    NotificationChannel,
+    NotificationDeliveryResult,
+    NotificationDeliveryStatus,
+    NotificationEvent,
+    NotificationSelectionReason,
+    Severity,
+)
 from lotuswatch.monitoring import (
     MAX_RETENTION_KEEP,
     MonitoringExecutionResult,
@@ -25,6 +35,10 @@ from lotuswatch.monitoring import (
     execute_monitoring_run,
     load_monitoring_history,
     plan_monitoring_retention,
+)
+from lotuswatch.notifications import (
+    MonitoringNotificationExecution,
+    execute_monitoring_notifications,
 )
 from lotuswatch.policy import SEVERITY_RANK
 from lotuswatch.reporters import write_json_report
@@ -43,6 +57,11 @@ PROFILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 class MonitorOutputFormat(StrEnum):
     CONSOLE = "console"
     JSON = "json"
+
+
+class MonitorNotificationChannel(StrEnum):
+    WEBHOOK = "webhook"
+    TELEGRAM = "telegram"
 
 
 monitor_app = typer.Typer(
@@ -161,10 +180,36 @@ def list_targets(
 def run_target(
     name: Annotated[str, typer.Argument(help="Enabled profile name to scan.")],
     database: DatabaseOption = None,
+    notify: Annotated[
+        list[MonitorNotificationChannel] | None,
+        typer.Option(
+            "--notify",
+            help="Notification channel to use; repeat for multiple channels.",
+        ),
+    ] = None,
+    notify_on: Annotated[
+        Severity | None,
+        typer.Option(
+            "--notify-on",
+            help="Notify for added or changed findings at this severity or higher.",
+        ),
+    ] = None,
+    notification_dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--notification-dry-run",
+            help="Store the run and preview notification selection without delivery.",
+        ),
+    ] = False,
 ) -> None:
     """Scan one profile, store the report, and compare its previous run."""
 
     _validate_profile_name(name)
+    notification_channels = _validate_notification_options(
+        notify,
+        notify_on,
+        notification_dry_run,
+    )
     store = _open_store(database)
     try:
         result = execute_monitoring_run(
@@ -178,6 +223,35 @@ def run_target(
         _raise_storage_error(exc)
 
     _render_monitoring_run(result)
+
+    if not notification_channels:
+        return
+    assert notify_on is not None
+    try:
+        notification = execute_monitoring_notifications(
+            result,
+            notification_channels,
+            notify_on,
+            dry_run=notification_dry_run,
+        )
+    except (NotificationPolicyError, NotificationError):
+        console.print(
+            "\n[bold red]Notification delivery failed after the monitoring run "
+            "was stored.[/bold red]"
+        )
+        console.print(
+            "The stored run was preserved. Review notification configuration."
+        )
+        raise typer.Exit(code=3) from None
+
+    _render_monitoring_notifications(notification)
+    if notification.has_delivery_failures:
+        console.print(
+            "[bold red]One or more notifications failed after the run was "
+            "stored.[/bold red]"
+        )
+        console.print("The stored run was preserved. Exit code: 3")
+        raise typer.Exit(code=3)
 
 
 @monitor_app.command("history")
@@ -413,6 +487,39 @@ def _validate_profile_name(name: str) -> None:
         )
 
 
+def _validate_notification_options(
+    notify: list[MonitorNotificationChannel] | None,
+    notify_on: Severity | None,
+    dry_run: bool,
+) -> tuple[NotificationChannel, ...]:
+    selected = [] if notify is None else notify
+    if not selected:
+        if notify_on is not None:
+            raise typer.BadParameter(
+                "--notify-on requires at least one --notify channel.",
+                param_hint="--notify-on",
+            )
+        if dry_run:
+            raise typer.BadParameter(
+                "--notification-dry-run requires at least one --notify channel.",
+                param_hint="--notification-dry-run",
+            )
+        return ()
+    if notify_on is None:
+        raise typer.BadParameter(
+            "--notify-on is required when --notify is used.",
+            param_hint="--notify-on",
+        )
+
+    channels = tuple(NotificationChannel(item.value) for item in selected)
+    if len(set(channels)) != len(channels):
+        raise typer.BadParameter(
+            "Duplicate --notify channels are not allowed.",
+            param_hint="--notify",
+        )
+    return channels
+
+
 def _raise_storage_error(error: MonitoringStoreError) -> NoReturn:
     raise typer.BadParameter(str(error), param_hint="--database") from error
 
@@ -459,6 +566,64 @@ def _render_monitoring_run(result: MonitoringExecutionResult) -> None:
     console.print(f"Unchanged: {summary.unchanged}")
 
 
+def _render_monitoring_notifications(
+    result: MonitoringNotificationExecution,
+) -> None:
+    console.print("\n[bold]Notifications[/bold]")
+    console.print(f"Threshold: {result.threshold.value}")
+
+    if result.selection.reason is NotificationSelectionReason.INITIAL_BASELINE:
+        for channel in result.channels:
+            console.print(f"{channel.value}: SKIPPED (initial baseline)")
+        console.print("The initial baseline does not alert by default.")
+        return
+    if result.selection.reason is NotificationSelectionReason.NO_MATCHING_FINDINGS:
+        for channel in result.channels:
+            console.print(f"{channel.value}: SKIPPED (no matching findings)")
+        console.print("No added or changed finding met the selected threshold.")
+        return
+
+    event = result.selection.event
+    assert event is not None
+    if result.dry_run:
+        _render_notification_dry_run(event, result.channels)
+        return
+
+    delivery = result.delivery
+    assert delivery is not None
+    for delivery_result in delivery.results:
+        _render_notification_delivery(delivery_result)
+
+
+def _render_notification_dry_run(
+    event: NotificationEvent,
+    channels: tuple[NotificationChannel, ...],
+) -> None:
+    console.print("[yellow]NOTIFICATION DRY RUN[/yellow]")
+    console.print(f"Event ID: {event.event_id}")
+    console.print(f"Triggering findings: {event.total_triggering_observations}")
+    for observation in event.observations:
+        console.print(
+            f"- {observation.status.value} {observation.severity.value} "
+            f"{escape(observation.finding_id)}: {escape(observation.title)}"
+        )
+    if event.truncated:
+        omitted = event.total_triggering_observations - len(event.observations)
+        console.print(f"- ... {omitted} additional observations omitted")
+    for channel in channels:
+        console.print(f"{channel.value}: DRY RUN (provider request not sent)")
+
+
+def _render_notification_delivery(result: NotificationDeliveryResult) -> None:
+    status = result.status.value.replace("_", " ").upper()
+    style = "green" if result.status is NotificationDeliveryStatus.DELIVERED else "red"
+    attempt_label = "attempt" if len(result.attempts) == 1 else "attempts"
+    console.print(
+        f"{result.channel.value}: [{style}]{status}[/{style}] "
+        f"({len(result.attempts)} {attempt_label})"
+    )
+
+
 def _maximum_severity(findings: list[Finding]) -> str:
     if not findings:
         return "none"
@@ -474,4 +639,9 @@ def _display_timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-__all__ = ["PROFILE_NAME_PATTERN", "MonitorOutputFormat", "monitor_app"]
+__all__ = [
+    "PROFILE_NAME_PATTERN",
+    "MonitorNotificationChannel",
+    "MonitorOutputFormat",
+    "monitor_app",
+]

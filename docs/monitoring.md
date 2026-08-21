@@ -44,6 +44,55 @@ newest earlier compatible run for the same canonical target. A successful
 command means the validated run was stored; it does not mean the target has no
 findings.
 
+## Optional Notifications
+
+Notifications are disabled by default. Select one or more channels explicitly
+and provide a severity threshold for added findings and current snapshots of
+changed findings:
+
+```bash
+lotuswatch monitor run production --notify webhook --notify-on medium
+```
+
+```bash
+lotuswatch monitor run production --notify webhook --notify telegram --notify-on high
+```
+
+Webhook delivery reads `LOTUSWATCH_WEBHOOK_URL` and the optional
+`LOTUSWATCH_WEBHOOK_SECRET`. Telegram delivery reads
+`LOTUSWATCH_TELEGRAM_BOT_TOKEN` and `LOTUSWATCH_TELEGRAM_CHAT_ID`. Configure
+only the variables required by the selected channels. Do not place their
+values in command-line arguments, documentation, scheduler logs, or the
+monitoring database.
+
+The initial compatible run establishes a baseline and does not alert by
+default. Later runs deliver only when an added finding or the current version
+of a changed finding meets `--notify-on`. Resolved and unchanged findings do
+not independently trigger delivery. The threshold is an operator-selected
+automation policy, not a complete risk score.
+
+Preview the selected event and channels without contacting a provider:
+
+```bash
+lotuswatch monitor run production --notify webhook --notify-on medium --notification-dry-run
+```
+
+A notification dry run still performs and stores the monitoring scan. It does
+not resolve provider secrets or send a webhook or Telegram request.
+
+Notification outcomes are printed after the stored run identifier:
+
+- Exit code `0` means no notification was required, the dry run completed, or
+  every attempted delivery succeeded.
+- Exit code `2` means command usage, monitoring execution, or storage failed.
+- Exit code `3` means the scan was stored but at least one explicitly requested
+  notification could not be delivered.
+
+Exit code `3` does not mean the stored scan was lost. Delivery is best effort;
+a timeout after provider acceptance can cause a later retry or monitoring run
+to produce a duplicate notification. LotusWatch does not provide exactly-once
+delivery or a persistent delivery queue.
+
 ## Inspect History
 
 List recent runs in newest-first order:
@@ -104,6 +153,18 @@ Register-ScheduledTask `
     -Description "Run one LotusWatch monitoring scan"
 ```
 
+To enable scheduled notifications, configure the required
+`LOTUSWATCH_WEBHOOK_URL`, `LOTUSWATCH_WEBHOOK_SECRET`,
+`LOTUSWATCH_TELEGRAM_BOT_TOKEN`, or `LOTUSWATCH_TELEGRAM_CHAT_ID` variables in
+the protected environment of the task account. Add only non-secret channel
+selection to `-Argument`, for example:
+
+```powershell
+-Argument "monitor run production --database C:\LotusWatchData\monitoring.db --notify webhook --notify-on high"
+```
+
+Do not embed environment variable values in the scheduled-task arguments.
+
 Run the task under an account that can read the installation and read and write
 the selected database directory. Configure Task Scheduler history or a
 separate protected log if operational output must be retained.
@@ -116,8 +177,19 @@ Use absolute paths and redirect output to a protected log file:
 0 3 * * * /opt/lotuswatch/.venv/bin/lotuswatch monitor run production --database /var/lib/lotuswatch/monitoring.db >> /var/log/lotuswatch-production.log 2>&1
 ```
 
+For notification-enabled cron jobs, load the required Telegram or webhook
+variables from a protected account environment or wrapper configuration and
+keep secret values out of the crontab. The cron command contains only the
+channel and threshold:
+
+```cron
+0 3 * * * /opt/lotuswatch/.venv/bin/lotuswatch monitor run production --database /var/lib/lotuswatch/monitoring.db --notify telegram --notify-on high >> /var/log/lotuswatch-production.log 2>&1
+```
+
 Ensure the cron account owns or can access the database and log paths. Do not
-put secrets in the command line, profile target, environment, or log filename.
+put secrets in the command line, profile target, crontab, or log filename. Use
+only a protected account environment or wrapper configuration for provider
+credentials.
 
 ## Locking and Concurrency
 
