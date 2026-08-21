@@ -10,6 +10,7 @@ from lotuswatch.models import (
     Finding,
     Severity,
     finding_fingerprint,
+    finding_id_fingerprint,
 )
 
 
@@ -37,6 +38,25 @@ def test_matches_canonical_v1_test_vector() -> None:
         "lwfp:v1:sha256:"
         "1a846f12bf5a874c7dcc7960b430b836e973c27258c14f45f481e35622d270b0"
     )
+
+
+def test_finding_identifier_helper_matches_finding_fingerprint() -> None:
+    finding = make_finding()
+
+    assert finding_id_fingerprint(
+        "https://example.com/", finding.id
+    ) == finding_fingerprint("https://example.com/", finding)
+
+
+@pytest.mark.parametrize("finding_id", ["", "invalid", "LW-test-001"])
+def test_finding_identifier_helper_rejects_invalid_id(finding_id: str) -> None:
+    with pytest.raises(ValueError, match="finding_id is invalid"):
+        finding_id_fingerprint("https://example.com/", finding_id)
+
+
+def test_finding_identifier_helper_rejects_non_string_id() -> None:
+    with pytest.raises(TypeError, match="finding_id must be a string"):
+        finding_id_fingerprint("https://example.com/", cast(str, 123))
 
 
 def test_output_contains_version_algorithm_and_digest() -> None:

@@ -108,3 +108,7 @@ class MonitoringComparisonError(MonitoringRunError):
 
 class MonitoringRetentionError(MonitoringRunError):
     """Raised when a monitoring retention operation is unsafe."""
+
+
+class NotificationPolicyError(LotusWatchError):
+    """Raised when a monitoring result cannot produce a safe notification."""

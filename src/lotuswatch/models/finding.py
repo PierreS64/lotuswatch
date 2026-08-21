@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, JsonValue
 
+FINDING_ID_PATTERN = r"^LW-[A-Z][A-Z0-9_]*-\d{3}$"
+
 
 class Severity(StrEnum):
     """Severity levels supported by LotusWatch."""
@@ -22,7 +24,7 @@ class Finding(BaseModel):
     )
 
     id: str = Field(
-        pattern=r"^LW-[A-Z][A-Z0-9_]*-\d{3}$",
+        pattern=FINDING_ID_PATTERN,
         examples=["LW-HTTP-001"],
     )
     severity: Severity
