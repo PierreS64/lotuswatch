@@ -1,0 +1,71 @@
+{
+  "comparison_schema_version": "1.0",
+  "normalized_target": "https://demo.example/",
+  "compared_at": "2026-08-02T10:05:00Z",
+  "baseline": {
+    "scan_schema_version": "1.0",
+    "lotuswatch_version": "0.1.0-alpha.5",
+    "scanned_at": "2026-08-01T10:00:00Z"
+  },
+  "current": {
+    "scan_schema_version": "1.0",
+    "lotuswatch_version": "0.1.0-alpha.6",
+    "scanned_at": "2026-08-02T10:00:00Z"
+  },
+  "summary": {
+    "added": 1,
+    "resolved": 0,
+    "changed": 1,
+    "unchanged": 0
+  },
+  "findings": [
+    {
+      "fingerprint": "lwfp:v1:sha256:f3c1109dc2fd9c2ad501affe11fadd30d68ace27c520194e8028111b0d10c619",
+      "status": "added",
+      "baseline_finding": null,
+      "current_finding": {
+        "id": "LW-DNS-001",
+        "severity": "info",
+        "title": "No effective CAA policy was found",
+        "description": "No effective CAA record set was observed. This is a synthetic compatibility observation.",
+        "evidence": {
+          "hostname": "demo.example",
+          "queried_names": [
+            "demo.example.",
+            "example."
+          ]
+        },
+        "recommendation": "Consider publishing a CAA policy for the domain.",
+        "reference": "https://www.rfc-editor.org/rfc/rfc8659.html"
+      }
+    },
+    {
+      "fingerprint": "lwfp:v1:sha256:d37fb181845a5a714f3f590774ceaf139b4421cb05a6c670996aa4b95f671236",
+      "status": "changed",
+      "baseline_finding": {
+        "id": "LW-HEADER-003",
+        "severity": "medium",
+        "title": "Content Security Policy is missing",
+        "description": "The response does not provide a Content-Security-Policy header. This is a synthetic compatibility observation.",
+        "evidence": {
+          "final_url": "https://demo.example/",
+          "status_code": 200
+        },
+        "recommendation": "Design and test a Content Security Policy for the application.",
+        "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
+      },
+      "current_finding": {
+        "id": "LW-HEADER-003",
+        "severity": "medium",
+        "title": "Content Security Policy is missing",
+        "description": "The response does not provide a Content-Security-Policy header. This is a synthetic compatibility observation.",
+        "evidence": {
+          "final_url": "https://demo.example/",
+          "status_code": 204
+        },
+        "recommendation": "Design and test a Content Security Policy for the application.",
+        "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
+      }
+    }
+  ]
+}

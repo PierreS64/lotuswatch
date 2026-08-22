@@ -13,10 +13,14 @@ from lotuswatch.exceptions import (
     ReportValidationError,
     ReportWriteError,
 )
-from lotuswatch.models import ComparisonReport, ScanReport
+from lotuswatch.models import (
+    SCAN_REPORT_SCHEMA_VERSION,
+    ComparisonReport,
+    ScanReport,
+)
 
 MAX_REPORT_SIZE_BYTES = 5 * 1024 * 1024
-SUPPORTED_SCAN_REPORT_SCHEMA_VERSIONS = frozenset({"1.0"})
+SUPPORTED_SCAN_REPORT_SCHEMA_VERSIONS = frozenset({SCAN_REPORT_SCHEMA_VERSION})
 
 
 def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

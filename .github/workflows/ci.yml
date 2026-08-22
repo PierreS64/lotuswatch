@@ -139,10 +139,12 @@ jobs:
         run: |
           wheel_path="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
           test -n "$wheel_path"
-          python scripts/smoke_install_distribution.py "$wheel_path"
+          python scripts/smoke_install_distribution.py "$wheel_path" \
+            --compatibility-fixtures tests/fixtures/compatibility
 
       - name: Smoke-test source-distribution installation
         run: |
           sdist_path="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
           test -n "$sdist_path"
-          python scripts/smoke_install_distribution.py "$sdist_path"
+          python scripts/smoke_install_distribution.py "$sdist_path" \
+            --compatibility-fixtures tests/fixtures/compatibility

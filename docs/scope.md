@@ -61,6 +61,9 @@ The current codebase supports:
 - Opt-in bounded plain-text Telegram Bot API delivery
 - Notification dry runs, deterministic multi-channel delivery, and partial-success
   exit behavior
+- Fixed alpha.5 and alpha.6 compatibility fixtures for supported JSON,
+  fingerprint, and SQLite schema versions
+- Installed wheel and source-distribution compatibility smoke tests
 - GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
 ## Planned Beyond the Current Alpha
@@ -155,6 +158,13 @@ SQLite online backup API, validates the completed copy, and refuses to replace
 an existing destination. These commands do not restore, merge, replicate,
 encrypt, authenticate, sign, upload, schedule, or automatically rotate data.
 
+Compatibility verification reads only fixed synthetic local fixtures. It does
+not scan a target or contact a provider. Installed-artifact tests copy those
+fixtures outside the source tree, materialize a temporary monitoring database,
+and verify supported alpha-era data through the installed package. Package,
+scan report, comparison, notification, fingerprint, and database versions are
+independent; see [`compatibility.md`](compatibility.md) for the beta contract.
+
 When notification options are selected, `monitor run` first completes and
 stores the validated scan. It then selects only added findings and current
 snapshots of changed findings that meet the explicit threshold. The initial
@@ -196,6 +206,11 @@ JSON reports can contain:
 - Parsed SPF record selections and DMARC policy observations
 - Controlled error diagnostics
 - Finding evidence
+
+Supported historical artifacts remain subject to current bounds and validation.
+Compatibility does not prove their origin, integrity, timestamps, or factual
+accuracy. Unsupported future schema versions are rejected rather than silently
+rewritten or reinterpreted.
 
 Comparison reports can repeat baseline and current finding snapshots,
 including their evidence, references, and remediation text. As a result, a

@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "lotuswatch_version": "0.1.0-alpha.6",
+  "target": {
+    "input": "demo.example",
+    "normalized_url": "https://demo.example/"
+  },
+  "scanned_at": "2026-08-02T10:00:00Z",
+  "summary": {
+    "checks_completed": 2,
+    "findings_total": 2
+  },
+  "checks": [
+    {
+      "name": "http_security_headers",
+      "status": "completed",
+      "passed": true,
+      "final_url": "https://demo.example/",
+      "status_code": 204
+    },
+    {
+      "name": "dns_caa",
+      "status": "completed",
+      "hostname": "demo.example",
+      "effective_name": null
+    }
+  ],
+  "findings": [
+    {
+      "id": "LW-HEADER-003",
+      "severity": "medium",
+      "title": "Content Security Policy is missing",
+      "description": "The response does not provide a Content-Security-Policy header. This is a synthetic compatibility observation.",
+      "evidence": {
+        "final_url": "https://demo.example/",
+        "status_code": 204
+      },
+      "recommendation": "Design and test a Content Security Policy for the application.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
+    },
+    {
+      "id": "LW-DNS-001",
+      "severity": "info",
+      "title": "No effective CAA policy was found",
+      "description": "No effective CAA record set was observed. This is a synthetic compatibility observation.",
+      "evidence": {
+        "hostname": "demo.example",
+        "queried_names": [
+          "demo.example.",
+          "example."
+        ]
+      },
+      "recommendation": "Consider publishing a CAA policy for the domain.",
+      "reference": "https://www.rfc-editor.org/rfc/rfc8659.html"
+    }
+  ]
+}

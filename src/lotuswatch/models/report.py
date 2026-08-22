@@ -11,6 +11,8 @@ from pydantic import (
 
 from lotuswatch.models.finding import Finding
 
+SCAN_REPORT_SCHEMA_VERSION = "1.0"
+
 
 class ReportTarget(BaseModel):
     """Target information included in a scan report."""

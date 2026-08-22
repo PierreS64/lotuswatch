@@ -1,0 +1,6 @@
+{
+  "fingerprint_version": 1,
+  "normalized_target": "https://demo.example/",
+  "finding_id": "LW-HEADER-003",
+  "fingerprint": "lwfp:v1:sha256:d37fb181845a5a714f3f590774ceaf139b4421cb05a6c670996aa4b95f671236"
+}

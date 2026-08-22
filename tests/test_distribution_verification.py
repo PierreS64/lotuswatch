@@ -9,6 +9,7 @@ from packaging.version import Version
 
 from scripts.smoke_install_distribution import (
     SmokeInstallError,
+    _copy_compatibility_fixtures,
     expected_artifact_version,
 )
 from scripts.verify_distribution import (
@@ -136,6 +137,31 @@ def test_expected_artifact_version_rejects_other_files() -> None:
         expected_artifact_version(Path("report.json"))
 
 
+def test_compatibility_fixtures_copy_as_exact_bounded_inventory(
+    tmp_path: Path,
+) -> None:
+    source = PROJECT_ROOT / "tests" / "fixtures" / "compatibility"
+    destination = tmp_path / "copied"
+
+    result = _copy_compatibility_fixtures(source, destination)
+
+    assert result == destination
+    assert {path.name: path.read_bytes() for path in destination.iterdir()} == {
+        path.name: path.read_bytes() for path in source.iterdir()
+    }
+
+
+def test_compatibility_fixture_copy_rejects_unexpected_inventory(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "fixtures"
+    source.mkdir()
+    (source / "unexpected.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SmokeInstallError, match="inventory"):
+        _copy_compatibility_fixtures(source, tmp_path / "copied")
+
+
 def test_package_ci_builds_and_smokes_without_publish_permissions() -> None:
     workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
@@ -149,6 +175,7 @@ def test_package_ci_builds_and_smokes_without_publish_permissions() -> None:
     assert "package-install:" in workflow
     assert "python scripts/verify_distribution.py dist" in workflow
     assert "python scripts/smoke_install_distribution.py" in workflow
+    assert workflow.count("--compatibility-fixtures tests/fixtures/compatibility") == 2
     assert (
         "actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4" in workflow
     )
