@@ -81,3 +81,18 @@ This check loads supported scan, comparison, notification, fingerprint, and
 monitoring database versions without running a scan or contacting a provider.
 The complete beta contract is documented in
 [`compatibility.md`](compatibility.md).
+
+## Publication Workflow Isolation
+
+Pull-request and ordinary `main` CI never publish and never request an OIDC
+token. `.github/workflows/publish.yml` is a separate workflow that runs only for
+an explicit manual TestPyPI dispatch or a published GitHub Release. Its build
+job has read-only permissions, validates the event and version, builds once,
+and stores the reviewed artifacts. Only the selected environment-bound publish
+job receives `id-token: write` and it never rebuilds the distributions.
+
+The TestPyPI post-publication job downloads LotusWatch with `--no-deps` from
+TestPyPI and installs that local wheel while resolving dependencies only from
+PyPI. This avoids mixed-index dependency resolution. See
+[`publishing.md`](publishing.md) for external setup, approvals, tag protection,
+attestations, and failure recovery.

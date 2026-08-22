@@ -64,6 +64,8 @@ The current codebase supports:
 - Fixed alpha.5 and alpha.6 compatibility fixtures for supported JSON,
   fingerprint, and SQLite schema versions
 - Installed wheel and source-distribution compatibility smoke tests
+- Isolated TestPyPI and PyPI Trusted Publishing workflow with version, event,
+  artifact, and environment gates
 - GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
 ## Planned Beyond the Current Alpha
@@ -164,6 +166,14 @@ fixtures outside the source tree, materialize a temporary monitoring database,
 and verify supported alpha-era data through the installed package. Package,
 scan report, comparison, notification, fingerprint, and database versions are
 independent; see [`compatibility.md`](compatibility.md) for the beta contract.
+
+The dedicated publication workflow contacts GitHub Actions, TestPyPI, or PyPI
+only during a maintainer-authorized release operation. It does not scan a target
+or access monitoring data. TestPyPI validation downloads LotusWatch without
+dependencies from TestPyPI, then installs the local artifact with dependencies
+resolved only from PyPI. Production publishing requires a matching published
+GitHub pre-release and approval through the protected `pypi` environment. See
+[`publishing.md`](publishing.md) for the complete trust boundary.
 
 When notification options are selected, `monitor run` first completes and
 stores the validated scan. It then selects only added findings and current

@@ -45,6 +45,8 @@ security configuration and presents the results in a clear, structured form.
 - Verify formatting, linting, and tests on Python 3.12, 3.13, and 3.14 in CI.
 - Verify supported alpha-era reports, fingerprints, notifications, and SQLite
   history against an explicit beta compatibility contract.
+- Provide a dedicated least-privilege TestPyPI and PyPI Trusted Publishing
+  workflow with protected environments and short-lived OIDC credentials.
 
 ## Requirements
 
@@ -63,10 +65,13 @@ LotusWatch uses three related names:
 - `lotuswatch` is the command installed into the active environment.
 - `lotuswatch` is also the Python import package used by library consumers.
 
-The project is not published to PyPI during the alpha.6 release. Until the
-packaging workflow is complete, install contributors' checkouts in editable
-mode as described below. The planned beta compatibility and upgrade boundaries
-are documented in [`docs/compatibility.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md).
+The project is not published to PyPI during the alpha.6 release. The repository
+contains a reviewed Trusted Publishing path, but it must not run until Beta 1
+metadata is merged and the external GitHub, TestPyPI, and PyPI environments are
+configured. Until publication succeeds, install contributors' checkouts in
+editable mode as described below. See the
+[`beta compatibility policy`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
+and [`Trusted Publishing runbook`](https://github.com/PierreS64/lotuswatch/blob/main/docs/publishing.md).
 
 ## Installation
 
@@ -581,17 +586,34 @@ authenticate its origin or prove its observations. See the
 [`beta compatibility and upgrade policy`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
 for the complete contract, fixture coverage, exit codes, and upgrade sequence.
 
+### Trusted Publishing
+
+The dedicated publication workflow builds and validates a wheel and source
+distribution once without OIDC permission. Only the selected TestPyPI or PyPI
+job receives `id-token: write`, downloads the unchanged reviewed artifact, and
+publishes through the matching protected GitHub environment. No PyPI token,
+password, `.pypirc`, or publishing secret is stored in the repository.
+
+TestPyPI publication is a manual action on `main`. Production publication runs
+only when a GitHub pre-release is published and its protected tag matches the
+canonical project version. Maintainers must complete the external publisher and
+environment setup in the
+[`Trusted Publishing runbook`](https://github.com/PierreS64/lotuswatch/blob/main/docs/publishing.md)
+before using either path.
+
 ## Project Structure
 
 ```text
 lotuswatch/
 |-- .github/
 |   `-- workflows/
-|       `-- ci.yml
+|       |-- ci.yml
+|       `-- publish.yml
 |-- docs/
 |   |-- ci.md
 |   |-- compatibility.md
 |   |-- monitoring.md
+|   |-- publishing.md
 |   `-- scope.md
 |-- examples/
 |   |-- baseline-report.json
@@ -602,6 +624,9 @@ lotuswatch/
 |   `-- sample-report.json
 |-- scripts/
 |   |-- smoke_install_distribution.py
+|   |-- smoke_testpypi.py
+|   |-- validate_publication.py
+|   |-- verify_compatibility_fixtures.py
 |   `-- verify_distribution.py
 |-- src/
 |   `-- lotuswatch/
@@ -654,6 +679,7 @@ lotuswatch/
 |   |-- test_notification_delivery.py
 |   |-- test_notification_policy.py
 |   |-- test_package_metadata.py
+|   |-- test_publication.py
 |   |-- test_distribution_verification.py
 |   |-- test_telegram.py
 |   |-- test_target.py
@@ -758,6 +784,9 @@ the detailed technical scope.
 - [x] On-demand monitoring with automatic previous-run comparison
 - [x] History inspection, explicit retention, and scheduler guidance
 - [x] Opt-in HTTPS webhook and Telegram notifications
+- [x] Repeatable wheel and source-distribution verification
+- [x] Beta compatibility fixtures and installed-artifact upgrade checks
+- [x] Least-privilege TestPyPI and PyPI Trusted Publishing workflow
 - [ ] Built-in background daemon
 - [ ] Email notifications
 - [ ] Persistent notification queue and delivery history
