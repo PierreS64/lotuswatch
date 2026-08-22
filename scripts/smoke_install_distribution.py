@@ -42,6 +42,8 @@ def smoke_install(
     artifact: Path,
     *,
     compatibility_fixtures: Path | None = None,
+    index_url: str | None = None,
+    isolated_pip: bool = False,
 ) -> None:
     artifact = artifact.resolve()
     if not artifact.is_file() or artifact.is_symlink():
@@ -58,8 +60,15 @@ def smoke_install(
         python = _environment_executable(environment_root, "python")
         environment = _isolated_environment()
 
+        install_command = [str(python), "-m", "pip"]
+        if isolated_pip:
+            install_command.append("--isolated")
+        install_command.append("install")
+        if index_url is not None:
+            install_command.extend(("--index-url", index_url))
+        install_command.append(str(artifact))
         _run(
-            [str(python), "-m", "pip", "install", str(artifact)],
+            install_command,
             cwd=working_directory,
             environment=environment,
         )

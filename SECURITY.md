@@ -85,6 +85,14 @@ Unsupported future schemas must not be forced through current validators. See
 before upgrading a monitoring installation, and protect both the source database
 and its separate backup.
 
+Package publication uses GitHub Actions Trusted Publishing with short-lived
+OIDC credentials. Do not add `PYPI_TOKEN`, TestPyPI tokens, `.pypirc`, passwords,
+or long-lived publishing credentials to repository or environment secrets. The
+build job must never receive `id-token: write`; only the selected protected
+publish job receives it, and that job publishes the unchanged reviewed workflow
+artifact. Follow [`docs/publishing.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/publishing.md)
+for exact publisher identities, environment protection, and recovery rules.
+
 Notification events are intentionally smaller than scan reports but remain
 sensitive. They contain the monitored profile and canonical target, event and
 run identifiers, timestamps, the selected threshold, comparison totals, and
@@ -205,3 +213,10 @@ inspection time. It does not authenticate the database, prove its origin,
 detect every malicious but model-valid change, or provide recovery. Online
 backups are complete sensitive copies and are not encrypted, authenticated,
 signed, automatically rotated, or automatically restored by LotusWatch.
+
+Trusted Publishing authenticates a GitHub workflow identity to a package index;
+it does not prove the package is vulnerability-free. PEP 740 attestations bind
+published artifact digests to that workflow identity but do not authenticate
+LotusWatch scan reports, monitoring databases, findings, dependencies, or runtime
+behavior. A pending publisher also does not reserve the distribution name before
+the first successful publication.

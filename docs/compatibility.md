@@ -136,6 +136,8 @@ supported contributor workflow.
 
 PyPI installation changes the installed package; it does not migrate, restore,
 authenticate, encrypt, or back up local monitoring data automatically.
+The complete TestPyPI and production sequence is documented in the
+[`Trusted Publishing runbook`](publishing.md).
 
 ## Trust Boundary
 

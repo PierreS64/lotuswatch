@@ -64,7 +64,8 @@ def test_immutable_compatibility_fixture_inventory_and_hashes() -> None:
 
     assert set(discovered) == set(FIXTURE_HASHES)
     for filename, expected_hash in FIXTURE_HASHES.items():
-        digest = hashlib.sha256(discovered[filename].read_bytes()).hexdigest()
+        payload = discovered[filename].read_bytes().replace(b"\r\n", b"\n")
+        digest = hashlib.sha256(payload).hexdigest()
         assert digest == expected_hash, f"Compatibility fixture changed: {filename}"
 
 

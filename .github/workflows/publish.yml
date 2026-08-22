@@ -1,0 +1,180 @@
+name: Publish Python package
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Exact reviewed PEP 440 beta version from project metadata
+        required: true
+        type: string
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.publication.outputs.version }}
+
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install distribution tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[distribution]"
+
+      - name: Validate publication event and version
+        id: publication
+        env:
+          DESTINATION: ${{ github.event_name == 'workflow_dispatch' && 'testpypi' || 'pypi' }}
+          EXPECTED_VERSION: ${{ inputs.expected_version || '' }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease || false }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+        run: |
+          version="$(python scripts/validate_publication.py \
+            --destination "$DESTINATION" \
+            --git-ref "$GITHUB_REF" \
+            --expected-version "$EXPECTED_VERSION" \
+            --release-tag "$RELEASE_TAG" \
+            --release-prerelease "$RELEASE_PRERELEASE")"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build wheel and source distribution once
+        run: python -m build --outdir dist
+
+      - name: Check rendered package metadata
+        run: python -m twine check dist/*
+
+      - name: Verify distribution contents
+        run: python scripts/verify_distribution.py dist
+
+      - name: Smoke-test reviewed wheel
+        run: |
+          wheel_path="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$wheel_path"
+          python scripts/smoke_install_distribution.py "$wheel_path" \
+            --compatibility-fixtures tests/fixtures/compatibility
+
+      - name: Smoke-test reviewed source distribution
+        run: |
+          sdist_path="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          test -n "$sdist_path"
+          python scripts/smoke_install_distribution.py "$sdist_path" \
+            --compatibility-fixtures tests/fixtures/compatibility
+
+      - name: Store reviewed publication artifacts
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: release-distributions-${{ steps.publication.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/lotuswatch-security
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download reviewed publication artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-distributions-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Publish unchanged artifacts to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1 pinned 2026-08-22
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          attestations: true
+
+  verify-testpypi:
+    name: Verify TestPyPI installation
+    if: github.event_name == 'workflow_dispatch'
+    needs:
+      - build
+      - publish-testpypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out verification tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+
+      - name: Install smoke-test dependency
+        run: python -m pip install "packaging>=24.0,<27.0"
+
+      - name: Download and verify the TestPyPI wheel
+        run: |
+          python -m scripts.smoke_testpypi "${{ needs.build.outputs.version }}" \
+            --compatibility-fixtures tests/fixtures/compatibility
+
+  publish-pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/lotuswatch-security
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download reviewed publication artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-distributions-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Publish unchanged artifacts to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1 pinned 2026-08-22
+        with:
+          packages-dir: dist/
+          attestations: true
