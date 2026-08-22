@@ -1,13 +1,13 @@
 {
   "baseline": {
-    "lotuswatch_version": "0.1.0-alpha.6",
+    "lotuswatch_version": "0.1.0b1",
     "scan_schema_version": "1.0",
     "scanned_at": "2026-08-19T12:00:00Z"
   },
   "compared_at": "2026-08-19T13:05:00Z",
   "comparison_schema_version": "1.0",
   "current": {
-    "lotuswatch_version": "0.1.0-alpha.6",
+    "lotuswatch_version": "0.1.0b1",
     "scan_schema_version": "1.0",
     "scanned_at": "2026-08-19T13:00:00Z"
   },

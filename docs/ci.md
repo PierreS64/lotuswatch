@@ -96,3 +96,8 @@ TestPyPI and installs that local wheel while resolving dependencies only from
 PyPI. This avoids mixed-index dependency resolution. See
 [`publishing.md`](publishing.md) for external setup, approvals, tag protection,
 attestations, and failure recovery.
+
+For Beta 1, publication validation requires canonical package version
+`0.1.0b1`. The production GitHub Release tag `v0.1.0b1` must normalize to that
+same version in both project metadata and package code before the artifact can
+reach the protected `pypi` job.

@@ -66,9 +66,10 @@ The current codebase supports:
 - Installed wheel and source-distribution compatibility smoke tests
 - Isolated TestPyPI and PyPI Trusted Publishing workflow with version, event,
   artifact, and environment gates
+- Canonical `0.1.0b1` package metadata and public-beta installation guidance
 - GitHub Actions formatting, linting, and test checks on Python 3.12 through 3.14
 
-## Planned Beyond the Current Alpha
+## Planned Beyond the Current Beta
 
 The following capabilities are not implemented yet:
 

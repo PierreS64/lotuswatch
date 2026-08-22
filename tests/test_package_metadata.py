@@ -36,6 +36,8 @@ def test_project_identity_and_version_metadata_are_consistent() -> None:
     assert project["scripts"] == {"lotuswatch": "lotuswatch.cli:app"}
     assert project["requires-python"] == ">=3.12"
     assert Version(project["version"]) == Version(__version__)
+    assert str(Version(project["version"])) == "0.1.0b1"
+    assert Version("v0.1.0b1"[1:]) == Version(project["version"])
 
 
 def test_project_uses_pep_639_mit_license_metadata() -> None:
@@ -54,7 +56,7 @@ def test_supported_python_and_public_project_metadata_are_declared() -> None:
     classifiers = set(project["classifiers"])
 
     assert {
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 4 - Beta",
         "Environment :: Console",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3.12",
@@ -64,6 +66,7 @@ def test_supported_python_and_public_project_metadata_are_declared() -> None:
         "Topic :: Security",
         "Topic :: System :: Monitoring",
     } <= classifiers
+    assert "Development Status :: 3 - Alpha" not in classifiers
     assert project["keywords"] == [
         "security",
         "monitoring",
