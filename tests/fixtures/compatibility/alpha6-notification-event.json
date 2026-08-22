@@ -1,0 +1,28 @@
+{
+  "notification_schema_version": "1.0",
+  "event_id": "66666666-6666-4666-8666-666666666666",
+  "generated_at": "2026-08-02T10:06:00Z",
+  "profile_name": "demo",
+  "normalized_target": "https://demo.example/",
+  "run_id": "55555555-5555-4555-8555-555555555555",
+  "scanned_at": "2026-08-02T10:00:00Z",
+  "compared_at": "2026-08-02T10:05:00Z",
+  "threshold": "medium",
+  "comparison_summary": {
+    "added": 1,
+    "resolved": 0,
+    "changed": 1,
+    "unchanged": 0
+  },
+  "total_triggering_observations": 1,
+  "truncated": false,
+  "observations": [
+    {
+      "fingerprint": "lwfp:v1:sha256:d37fb181845a5a714f3f590774ceaf139b4421cb05a6c670996aa4b95f671236",
+      "status": "changed",
+      "finding_id": "LW-HEADER-003",
+      "severity": "medium",
+      "title": "Content Security Policy is missing"
+    }
+  ]
+}

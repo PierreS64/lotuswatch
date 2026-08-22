@@ -256,6 +256,7 @@ def test_repository_contains_no_literal_notification_credentials() -> None:
         "README.md",
         "SECURITY.md",
         "docs/ci.md",
+        "docs/compatibility.md",
         "docs/monitoring.md",
         "docs/scope.md",
     ],

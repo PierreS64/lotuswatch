@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import venv
 from pathlib import Path
+from typing import Final
 
 from packaging.utils import parse_sdist_filename, parse_wheel_filename
 from packaging.version import Version
@@ -16,6 +17,17 @@ from packaging.version import Version
 
 class SmokeInstallError(RuntimeError):
     """Raised when an isolated installed-artifact check fails."""
+
+
+MAX_COMPATIBILITY_FIXTURE_SIZE_BYTES: Final = 5 * 1024 * 1024
+COMPATIBILITY_FIXTURE_FILENAMES: Final = (
+    "alpha5-scan-report.json",
+    "alpha6-scan-report.json",
+    "alpha6-comparison-report.json",
+    "alpha6-notification-event.json",
+    "alpha5-monitoring-v1.json",
+    "fingerprint-v1.json",
+)
 
 
 def expected_artifact_version(path: Path) -> Version:
@@ -26,7 +38,11 @@ def expected_artifact_version(path: Path) -> Version:
     raise SmokeInstallError("Artifact must be a wheel or .tar.gz source distribution.")
 
 
-def smoke_install(artifact: Path) -> None:
+def smoke_install(
+    artifact: Path,
+    *,
+    compatibility_fixtures: Path | None = None,
+) -> None:
     artifact = artifact.resolve()
     if not artifact.is_file() or artifact.is_symlink():
         raise SmokeInstallError("Artifact must be a regular local file.")
@@ -109,6 +125,74 @@ def smoke_install(artifact: Path) -> None:
             if expected_command not in help_result.stdout:
                 raise SmokeInstallError("Installed CLI help is incomplete.")
 
+        if compatibility_fixtures is not None:
+            copied_fixtures = _copy_compatibility_fixtures(
+                compatibility_fixtures,
+                working_directory / "compatibility-fixtures",
+            )
+            verifier = (
+                Path(__file__).with_name("verify_compatibility_fixtures.py").resolve()
+            )
+            if not verifier.is_file() or verifier.is_symlink():
+                raise SmokeInstallError("Compatibility verifier script is unavailable.")
+            _run(
+                [str(python), str(verifier), str(copied_fixtures)],
+                cwd=working_directory,
+                environment=environment,
+            )
+
+
+def _copy_compatibility_fixtures(source: Path, destination: Path) -> Path:
+    """Copy an exact bounded fixture inventory outside the source tree."""
+
+    if source.is_symlink():
+        raise SmokeInstallError("Compatibility fixture path must be a real directory.")
+    try:
+        source = source.resolve(strict=True)
+    except OSError as exc:
+        raise SmokeInstallError(
+            "Compatibility fixture directory is unavailable."
+        ) from exc
+    if not source.is_dir():
+        raise SmokeInstallError("Compatibility fixture path must be a real directory.")
+
+    try:
+        entries = {path.name: path for path in source.iterdir()}
+    except OSError as exc:
+        raise SmokeInstallError(
+            "Unable to inspect compatibility fixture directory."
+        ) from exc
+    if set(entries) != set(COMPATIBILITY_FIXTURE_FILENAMES):
+        raise SmokeInstallError(
+            "Compatibility fixture inventory is incomplete or unexpected."
+        )
+    try:
+        destination.mkdir()
+    except OSError as exc:
+        raise SmokeInstallError(
+            "Unable to create isolated compatibility fixture directory."
+        ) from exc
+    for filename in COMPATIBILITY_FIXTURE_FILENAMES:
+        fixture = entries[filename]
+        if not fixture.is_file() or fixture.is_symlink():
+            raise SmokeInstallError(
+                "Compatibility fixture must be a regular local file."
+            )
+        try:
+            size = fixture.stat().st_size
+            if size > MAX_COMPATIBILITY_FIXTURE_SIZE_BYTES:
+                raise SmokeInstallError("Compatibility fixture exceeds the size limit.")
+            payload = fixture.read_bytes()
+        except OSError as exc:
+            raise SmokeInstallError("Unable to read compatibility fixture.") from exc
+        if len(payload) != size:
+            raise SmokeInstallError("Compatibility fixture changed while being copied.")
+        try:
+            (destination / filename).write_bytes(payload)
+        except OSError as exc:
+            raise SmokeInstallError("Unable to copy compatibility fixture.") from exc
+    return destination
+
 
 def _environment_executable(environment_root: Path, name: str) -> Path:
     if os.name == "nt":
@@ -156,13 +240,17 @@ def _parse_arguments() -> argparse.Namespace:
         description="Install and smoke-test one LotusWatch distribution artifact."
     )
     parser.add_argument("artifact", type=Path)
+    parser.add_argument("--compatibility-fixtures", type=Path)
     return parser.parse_args()
 
 
 def main() -> int:
     arguments = _parse_arguments()
     try:
-        smoke_install(arguments.artifact)
+        smoke_install(
+            arguments.artifact,
+            compatibility_fixtures=arguments.compatibility_fixtures,
+        )
     except (SmokeInstallError, ValueError) as exc:
         print(f"Installed-artifact smoke test failed: {exc}")
         return 1

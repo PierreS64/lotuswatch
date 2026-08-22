@@ -60,5 +60,24 @@ echo $?
 - `0`: The command completed and the selected policy threshold was not met, or no policy was selected.
 - `1`: The command completed and the selected severity policy threshold was met.
 - `2`: CLI usage, report input, compatibility, comparison, or output validation failed.
+- `3`: A monitoring run was stored, but at least one explicitly requested
+  notification delivery failed.
 
 A policy exit does not mean LotusWatch crashed. Finding severity is not a complete risk score and does not prove exploitability. Operationally incomplete scan checks remain visible in console and JSON results and are not automatically converted into security findings.
+
+## Installed-Artifact Compatibility Checks
+
+CI builds one wheel and one source distribution, verifies their bounded archive
+inventories, and installs each artifact on Python 3.12, 3.13, and 3.14. Each
+clean installation also validates the fixed alpha.5 and alpha.6 fixtures after
+copying them outside the repository:
+
+```bash
+python scripts/smoke_install_distribution.py path/to/artifact \
+  --compatibility-fixtures tests/fixtures/compatibility
+```
+
+This check loads supported scan, comparison, notification, fingerprint, and
+monitoring database versions without running a scan or contacting a provider.
+The complete beta contract is documented in
+[`compatibility.md`](compatibility.md).

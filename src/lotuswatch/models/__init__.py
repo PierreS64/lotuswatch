@@ -1,4 +1,5 @@
 from lotuswatch.models.comparison import (
+    COMPARISON_REPORT_SCHEMA_VERSION,
     ComparisonReport,
     ComparisonReportMetadata,
     ComparisonStatus,
@@ -35,9 +36,15 @@ from lotuswatch.models.notification_delivery import (
     NotificationRetryPolicy,
     NotificationTimeouts,
 )
-from lotuswatch.models.report import ReportTarget, ScanReport, ScanSummary
+from lotuswatch.models.report import (
+    SCAN_REPORT_SCHEMA_VERSION,
+    ReportTarget,
+    ScanReport,
+    ScanSummary,
+)
 
 __all__ = [
+    "COMPARISON_REPORT_SCHEMA_VERSION",
     "FINDING_FINGERPRINT_VERSION",
     "FINDING_ID_PATTERN",
     "MAX_NOTIFICATION_ATTEMPTS",
@@ -45,6 +52,7 @@ __all__ = [
     "MAX_NOTIFICATION_OBSERVATIONS",
     "MAX_NOTIFICATION_RETRY_DELAY_SECONDS",
     "NOTIFICATION_EVENT_SCHEMA_VERSION",
+    "SCAN_REPORT_SCHEMA_VERSION",
     "ComparisonReport",
     "ComparisonReportMetadata",
     "ComparisonStatus",

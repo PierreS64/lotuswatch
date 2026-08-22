@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "lotuswatch_version": "0.1.0-alpha.5",
+  "target": {
+    "input": "demo.example",
+    "normalized_url": "https://demo.example/"
+  },
+  "scanned_at": "2026-08-01T10:00:00Z",
+  "summary": {
+    "checks_completed": 1,
+    "findings_total": 1
+  },
+  "checks": [
+    {
+      "name": "http_security_headers",
+      "status": "completed",
+      "passed": true,
+      "final_url": "https://demo.example/",
+      "status_code": 200
+    }
+  ],
+  "findings": [
+    {
+      "id": "LW-HEADER-003",
+      "severity": "medium",
+      "title": "Content Security Policy is missing",
+      "description": "The response does not provide a Content-Security-Policy header. This is a synthetic compatibility observation.",
+      "evidence": {
+        "final_url": "https://demo.example/",
+        "status_code": 200
+      },
+      "recommendation": "Design and test a Content Security Policy for the application.",
+      "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"
+    }
+  ]
+}

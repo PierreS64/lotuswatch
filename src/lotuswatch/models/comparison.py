@@ -24,6 +24,7 @@ from lotuswatch.models.report import ScanReport
 from lotuswatch.target import normalize_target
 
 _FINGERPRINT_PATTERN = r"^lwfp:v1:sha256:[0-9a-f]{64}$"
+COMPARISON_REPORT_SCHEMA_VERSION = "1.0"
 
 
 class ComparisonStatus(StrEnum):

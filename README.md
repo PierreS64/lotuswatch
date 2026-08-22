@@ -43,6 +43,8 @@ security configuration and presents the results in a clear, structured form.
 - Deliver opt-in bounded plain-text Telegram Bot API notifications.
 - Preview notification selection without resolving secrets or contacting providers.
 - Verify formatting, linting, and tests on Python 3.12, 3.13, and 3.14 in CI.
+- Verify supported alpha-era reports, fingerprints, notifications, and SQLite
+  history against an explicit beta compatibility contract.
 
 ## Requirements
 
@@ -63,7 +65,8 @@ LotusWatch uses three related names:
 
 The project is not published to PyPI during the alpha.6 release. Until the
 packaging workflow is complete, install contributors' checkouts in editable
-mode as described below.
+mode as described below. The planned beta compatibility and upgrade boundaries
+are documented in [`docs/compatibility.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md).
 
 ## Installation
 
@@ -551,14 +554,32 @@ Smoke-test each artifact in a fresh virtual environment outside the source
 tree:
 
 ```bash
-python scripts/smoke_install_distribution.py path/to/lotuswatch_security-version-py3-none-any.whl
-python scripts/smoke_install_distribution.py path/to/lotuswatch_security-version.tar.gz
+python scripts/smoke_install_distribution.py path/to/lotuswatch_security-version-py3-none-any.whl --compatibility-fixtures tests/fixtures/compatibility
+python scripts/smoke_install_distribution.py path/to/lotuswatch_security-version.tar.gz --compatibility-fixtures tests/fixtures/compatibility
 ```
 
 The smoke command installs dependencies from the configured Python package
-index. It does not run a LotusWatch scan, open a monitoring database, or
-contact a notification provider. Build output belongs in `dist/`, is ignored
-by Git, and must be reviewed rather than committed.
+index. It does not run a LotusWatch scan or contact a notification provider.
+With the compatibility option, it copies fixed synthetic fixtures outside the
+source tree, materializes a temporary schema-version-1 database, and verifies
+that the installed artifact can read every supported alpha-era format. Build
+output belongs in `dist/`, is ignored by Git, and must be reviewed rather than
+committed.
+
+### Beta compatibility and upgrades
+
+Package versions and persisted-data versions are independent. LotusWatch
+currently preserves scan report schema `1.0`, comparison schema `1.0`,
+notification schema `1.0`, finding fingerprint version `1`, and monitoring
+database schema `1`. A historical alpha package version in metadata does not
+make one of these supported formats incompatible.
+
+Before upgrading a valuable monitoring installation, stop overlapping jobs,
+run the explicit database check, and create a separate non-overwriting backup.
+Compatibility means current code can validate supported data; it does not
+authenticate its origin or prove its observations. See the
+[`beta compatibility and upgrade policy`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
+for the complete contract, fixture coverage, exit codes, and upgrade sequence.
 
 ## Project Structure
 
@@ -569,6 +590,7 @@ lotuswatch/
 |       `-- ci.yml
 |-- docs/
 |   |-- ci.md
+|   |-- compatibility.md
 |   |-- monitoring.md
 |   `-- scope.md
 |-- examples/
@@ -618,10 +640,13 @@ lotuswatch/
 |       `-- target.py
 |-- tests/
 |   |-- checks/
+|   |-- fixtures/
+|   |   `-- compatibility/
 |   |-- models/
 |   |-- reporters/
 |   |-- storage/
 |   |-- test_cli.py
+|   |-- test_beta_compatibility.py
 |   |-- test_database_cli.py
 |   |-- test_monitor_cli.py
 |   |-- test_monitor_notifications.py

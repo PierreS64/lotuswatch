@@ -77,6 +77,14 @@ Protect backup destinations, scheduler output, and temporary filesystem areas,
 and review stored reports before exporting, sharing, or committing them.
 Retention is explicit and does not replace a backup and data-handling policy.
 
+Compatibility fixtures use reserved synthetic names and fake identifiers, but
+user-provided historical reports and databases remain untrusted and potentially
+sensitive. Read compatibility does not authenticate their producer or contents.
+Unsupported future schemas must not be forced through current validators. See
+[`docs/compatibility.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
+before upgrading a monitoring installation, and protect both the source database
+and its separate backup.
+
 Notification events are intentionally smaller than scan reports but remain
 sensitive. They contain the monitored profile and canonical target, event and
 run identifiers, timestamps, the selected threshold, comparison totals, and
