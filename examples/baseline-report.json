@@ -56,7 +56,7 @@
       "title": "DMARC uses a monitoring policy"
     }
   ],
-  "lotuswatch_version": "0.1.0-alpha.6",
+  "lotuswatch_version": "0.1.0b1",
   "scanned_at": "2026-08-19T12:00:00Z",
   "schema_version": "1.0",
   "summary": {

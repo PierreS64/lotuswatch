@@ -44,7 +44,29 @@ def test_version_metadata_matches_package_version() -> None:
     )
 
     assert pyproject["project"]["version"] == __version__
-    assert __version__ == "0.1.0-alpha.6"
+    assert __version__ == "0.1.0b1"
+
+
+def test_beta_installation_and_database_maintenance_guidance() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    monitoring = (PROJECT_ROOT / "docs" / "monitoring.md").read_text(encoding="utf-8")
+    compatibility = (PROJECT_ROOT / "docs" / "compatibility.md").read_text(
+        encoding="utf-8"
+    )
+    publishing = (PROJECT_ROOT / "docs" / "publishing.md").read_text(encoding="utf-8")
+
+    assert "python -m pip install --pre lotuswatch-security" in readme
+    assert 'python -m pip install "lotuswatch-security==0.1.0b1"' in readme
+    assert 'python -m pip install -e ".[dev]"' in readme
+    assert "lotuswatch monitor database check" in readme
+    assert "lotuswatch monitor database backup" in readme
+    assert "never overwrite" in monitoring.casefold() or "refuses existing" in (
+        monitoring.casefold()
+    )
+    assert "not encrypt" in monitoring.casefold()
+    assert "python -m pip install --pre --upgrade lotuswatch-security" in compatibility
+    assert "--no-deps" in publishing
+    assert "dependencies only from" in publishing
 
 
 @pytest.mark.parametrize("filename", SCAN_EXAMPLES)
@@ -171,6 +193,7 @@ def test_synthetic_artifacts_contain_no_private_target_data(filename: str) -> No
 def test_synthetic_monitoring_session_is_safe_and_documents_commands() -> None:
     serialized = MONITORING_EXAMPLE.read_text(encoding="utf-8").casefold()
 
+    assert "0.1.0b1" in serialized
     assert "demo.example" in serialized
     assert "no database file is included" in serialized
     assert "monitor add" in serialized

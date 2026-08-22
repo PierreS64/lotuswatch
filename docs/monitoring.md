@@ -289,8 +289,9 @@ permissions appropriate for complete monitoring history, test them with
 retention policy. LotusWatch does not encrypt, authenticate, sign, rotate,
 restore, upload, or schedule backups automatically.
 
-Before installing a newer LotusWatch pre-release, stop overlapping jobs, run
+Before installing or upgrading a LotusWatch beta, stop overlapping jobs, run
 the database check, and create a separate backup at a new path. Monitoring
 database schema `1` remains part of the `0.1.0` beta compatibility contract,
-but historical data is still untrusted and unauthenticated. Follow the complete
+but historical data is still untrusted and unauthenticated. A successful check
+does not replace the sensitive, unencrypted backup. Follow the complete
 [`beta upgrade guide`](compatibility.md) before resuming scheduled jobs.

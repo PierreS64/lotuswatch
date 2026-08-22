@@ -1,9 +1,9 @@
 # Beta Compatibility and Upgrade Policy
 
-This document defines the compatibility contract planned for the LotusWatch
-`0.1.0` beta series. The current alpha package already verifies this contract
-against fixed alpha.5 and alpha.6 fixtures so that the first beta can be tested
-before publication.
+This document defines the compatibility contract for the LotusWatch `0.1.0`
+beta series. Beta 1 verifies this contract against fixed alpha.5 and alpha.6
+fixtures so supported data can be checked before and after installation or
+upgrade.
 
 LotusWatch beta releases are still pre-release software. Commands, output, and
 behavior can evolve during the beta. An incompatible persisted-data change
@@ -18,7 +18,7 @@ installed package:
 
 | Version domain | Current supported value | Purpose |
 | --- | --- | --- |
-| Python package | Alpha releases, then `0.1.0b1` | Installed code and distribution metadata |
+| Python package | `0.1.0b1` | Installed code and distribution metadata |
 | Scan report schema | `1.0` | Individual JSON scan reports |
 | Comparison schema | `1.0` | JSON baseline comparison reports |
 | Notification schema | `1.0` | Minimal webhook and Telegram event content |
@@ -30,10 +30,10 @@ code that produced an artifact. It does not make schema `1.0` incompatible with
 a newer package. Conversely, changing only a package version never grants
 permission to reinterpret an unsupported schema.
 
-The beta compatibility suite currently proves that valid alpha.5 and alpha.6
-artifacts using the supported versions above remain readable. Arbitrary
-development snapshots, malformed artifacts, and unsupported future schema
-versions are not accepted.
+The beta compatibility suite proves that valid alpha.5 and alpha.6 artifacts
+using the supported versions above remain readable. Arbitrary development
+snapshots, malformed artifacts, and unsupported future schema versions are not
+accepted.
 
 ## Public Beta Contract
 
@@ -118,10 +118,9 @@ Before changing environments:
 Do not overwrite the only database copy, and do not treat a successful schema
 check as proof of report provenance or authenticity.
 
-## Upgrade to a Future PyPI Beta
+## Install or Upgrade to a PyPI Beta
 
-After the beta is actually published, install the explicit reviewed version in
-a fresh environment when practical:
+Install an explicit reviewed version in a fresh environment when practical:
 
 ```bash
 python -m pip install "lotuswatch-security==0.1.0b1"
@@ -129,10 +128,17 @@ lotuswatch --version
 ```
 
 An explicit pre-release version does not need pip's general `--pre` resolver
-option. If requesting the newest available pre-release without pinning an exact
-version, use `--pre` deliberately and review the resolved version. Until the
-package is published, editable installation from the repository remains the
-supported contributor workflow.
+option. To request the newest available LotusWatch pre-release without pinning
+an exact version, use `--pre` deliberately and review the resolved version:
+
+```bash
+python -m pip install --pre --upgrade lotuswatch-security
+lotuswatch --version
+```
+
+Contributor checkouts continue to use editable installation from the
+repository. Do not mix an editable checkout and an index installation in the
+same environment when verifying upgrade behavior.
 
 PyPI installation changes the installed package; it does not migrate, restore,
 authenticate, encrypt, or back up local monitoring data automatically.

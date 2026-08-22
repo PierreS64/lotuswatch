@@ -2,13 +2,15 @@
 
 ## Supported Versions
 
-LotusWatch is currently an early alpha project. Security fixes are applied to
-the latest code on the `main` branch.
+LotusWatch is currently public beta software. Security fixes are applied to the
+latest code on the `main` branch and the latest `0.1.0` beta release on a
+best-effort basis.
 
 | Version | Supported |
 | --- | --- |
 | `main` | Yes |
-| `0.1.x-alpha` | Best effort |
+| Latest `0.1.0` beta | Best effort |
+| Alpha releases | No |
 | Older versions | No |
 
 ## Reporting a Vulnerability

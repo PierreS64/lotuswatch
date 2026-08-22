@@ -156,6 +156,26 @@ artifact and installation checks succeed:
 9. Verify the PyPI project page, filenames, hashes, attestations, metadata, and a
    clean installation before closing the sprint milestone.
 
+Verify the exact production artifact in a fresh environment:
+
+```bash
+python -m pip install "lotuswatch-security==0.1.0b1"
+python -m pip check
+lotuswatch --version
+lotuswatch --help
+```
+
+Also confirm that ordinary pre-release resolution selects the reviewed beta:
+
+```bash
+python -m pip install --pre lotuswatch-security
+lotuswatch --version
+```
+
+Both commands use production PyPI for LotusWatch and its dependencies. The
+earlier TestPyPI verification downloads LotusWatch alone with `--no-deps` and
+then installs that local wheel with dependencies only from production PyPI.
+
 Do not create or publish the GitHub Release until TestPyPI validation is
 complete. Publishing the GitHub Release is the production publication trigger.
 

@@ -51,7 +51,7 @@ security configuration and presents the results in a clear, structured form.
 ## Requirements
 
 - Python 3.12 or newer
-- Git
+- Git, only when installing a contributor checkout
 
 The project is currently developed with Python 3.14 on Windows. GitHub Actions
 also verifies Python 3.12, 3.13, and 3.14 on Linux.
@@ -65,24 +65,50 @@ LotusWatch uses three related names:
 - `lotuswatch` is the command installed into the active environment.
 - `lotuswatch` is also the Python import package used by library consumers.
 
-The project is not published to PyPI during the alpha.6 release. The repository
-contains a reviewed Trusted Publishing path, but it must not run until Beta 1
-metadata is merged and the external GitHub, TestPyPI, and PyPI environments are
-configured. Until publication succeeds, install contributors' checkouts in
-editable mode as described below. See the
+LotusWatch Beta 1 is distributed from PyPI as `lotuswatch-security`. Because
+Beta 1 is a pre-release, pip requires either the exact version or the explicit
+`--pre` option when resolving the newest available LotusWatch version. See the
 [`beta compatibility policy`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
 and [`Trusted Publishing runbook`](https://github.com/PierreS64/lotuswatch/blob/main/docs/publishing.md).
 
 ## Installation
 
-### 1. Clone the repository
+### Install from PyPI
+
+For ordinary use, install the newest available pre-release from PyPI:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install --pre lotuswatch-security
+```
+
+To install the reviewed Beta 1 version explicitly:
+
+```bash
+python -m pip install "lotuswatch-security==0.1.0b1"
+```
+
+An exact pre-release pin does not require `--pre`. Confirm the installed
+distribution and command version before use:
+
+```bash
+python -m pip show lotuswatch-security
+lotuswatch --version
+```
+
+Do not use TestPyPI as an extra package index. TestPyPI is a maintainer
+validation boundary and may contain incomplete or unrelated dependency builds.
+
+### Install a contributor checkout
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/PierreS64/lotuswatch.git
 cd lotuswatch
 ```
 
-### 2. Create a virtual environment
+Create a virtual environment.
 
 Windows PowerShell:
 
@@ -101,7 +127,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### 3. Install LotusWatch
+Install the checkout with development dependencies:
 
 ```bash
 python -m pip install --upgrade pip
@@ -109,7 +135,8 @@ python -m pip install -e ".[dev]"
 ```
 
 The editable installation makes source-code changes available without
-reinstalling the package.
+reinstalling the package. Contributors who build release artifacts must also
+install `.[distribution]` as described in the development section.
 
 ## Usage
 
@@ -586,6 +613,17 @@ authenticate its origin or prove its observations. See the
 [`beta compatibility and upgrade policy`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
 for the complete contract, fixture coverage, exit codes, and upgrade sequence.
 
+Check an existing database and create a new online backup without overwriting
+another path:
+
+```bash
+lotuswatch monitor database check --database /absolute/path/monitoring.db
+lotuswatch monitor database backup /absolute/path/monitoring-backup.db --database /absolute/path/monitoring.db
+```
+
+The database and backup both contain sensitive monitoring history. LotusWatch
+does not encrypt, authenticate, sign, upload, restore, or rotate them.
+
 ### Trusted Publishing
 
 The dedicated publication workflow builds and validates a wheel and source
@@ -599,7 +637,9 @@ only when a GitHub pre-release is published and its protected tag matches the
 canonical project version. Maintainers must complete the external publisher and
 environment setup in the
 [`Trusted Publishing runbook`](https://github.com/PierreS64/lotuswatch/blob/main/docs/publishing.md)
-before using either path.
+before using either path. Ordinary users should install from production PyPI;
+TestPyPI validation downloads LotusWatch without dependencies and resolves the
+local wheel's dependencies only from production PyPI.
 
 ## Project Structure
 
@@ -714,6 +754,9 @@ the detailed technical scope.
 
 ## Limitations
 
+- Beta releases are pre-release software. Documented compatibility boundaries
+  apply during the `0.1.0` beta series, but behavior can still evolve before a
+  stable release.
 - Results may contain false positives or false negatives.
 - Redirect success does not prove endpoint availability or application safety.
 - TLS inspection does not grade protocols, cipher suites, revocation, or all
@@ -787,6 +830,7 @@ the detailed technical scope.
 - [x] Repeatable wheel and source-distribution verification
 - [x] Beta compatibility fixtures and installed-artifact upgrade checks
 - [x] Least-privilege TestPyPI and PyPI Trusted Publishing workflow
+- [x] Beta 1 release metadata, documentation, and package verification
 - [ ] Built-in background daemon
 - [ ] Email notifications
 - [ ] Persistent notification queue and delivery history

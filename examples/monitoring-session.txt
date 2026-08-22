@@ -4,6 +4,9 @@ Synthetic LotusWatch monitoring session
 This example is illustrative only. It uses the reserved demo.example domain
 and opaque synthetic run identifiers. No database file is included.
 
+$ lotuswatch --version
+0.1.0b1
+
 $ lotuswatch monitor add demo demo.example --database ./demo-monitoring.db
 Added monitoring target: demo
 Target: https://demo.example/
