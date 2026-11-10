@@ -124,7 +124,7 @@ def execute_scan(
 
     header_result = check_runner.check_headers(
         target,
-        endpoint_url=_redirect_https_endpoint(redirect_result),
+        endpoint_url=_redirect_https_endpoint(target, redirect_result),
     )
     header_findings = security_header_result_to_findings(header_result)
 
@@ -196,8 +196,15 @@ def execute_scan(
     )
 
 
-def _redirect_https_endpoint(result: RedirectCheckResult) -> str | None:
-    if urlsplit(result.final_url).scheme.casefold() == "https":
+def _redirect_https_endpoint(
+    target: NormalizedTarget, result: RedirectCheckResult
+) -> str | None:
+    parsed = urlsplit(result.final_url)
+    if (
+        result.passed
+        and parsed.scheme.casefold() == "https"
+        and parsed.hostname == target.hostname
+    ):
         return result.final_url
 
     return None

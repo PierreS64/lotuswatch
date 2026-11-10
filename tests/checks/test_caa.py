@@ -196,7 +196,7 @@ def test_ip_address_is_not_applicable_and_produces_no_finding() -> None:
     resolver = FakeResolver({})
 
     result = check_caa_records(
-        normalize_target("192.0.2.10"),
+        normalize_target("8.8.8.8"),
         resolver=resolver,
     )
 

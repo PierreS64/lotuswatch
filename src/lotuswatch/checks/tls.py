@@ -7,6 +7,11 @@ from typing import Any
 from pydantic import BaseModel, Field, JsonValue
 
 from lotuswatch.models import Finding, Severity
+from lotuswatch.network import (
+    PublicAddressError,
+    PublicResolutionError,
+    resolve_public_address,
+)
 from lotuswatch.target import NormalizedTarget
 
 DEFAULT_TLS_PORT = 443
@@ -79,7 +84,7 @@ def check_tls_certificate(
     try:
         with (
             socket.create_connection(
-                (hostname, port),
+                (resolve_public_address(hostname, port, timeout=timeout), port),
                 timeout=timeout,
             ) as raw_socket,
             context.wrap_socket(
@@ -107,7 +112,7 @@ def check_tls_certificate(
             error=_verification_error_message(exc),
             verification_code=getattr(exc, "verify_code", None),
         )
-    except socket.gaierror as exc:
+    except (socket.gaierror, PublicResolutionError) as exc:
         return _build_error_result(
             hostname=hostname,
             port=port,
@@ -128,7 +133,7 @@ def check_tls_certificate(
             status=TLSStatus.HANDSHAKE_ERROR,
             error=f"TLS handshake failed: {exc}",
         )
-    except OSError as exc:
+    except (OSError, PublicAddressError) as exc:
         return _build_error_result(
             hostname=hostname,
             port=port,

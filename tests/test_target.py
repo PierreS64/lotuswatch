@@ -73,3 +73,27 @@ def test_exposes_normalized_components() -> None:
     assert target.scheme == "https"
     assert target.hostname == "example.com"
     assert target.port == 8443
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://127.0.0.1/",
+        "http://10.0.0.1/",
+        "http://169.254.169.254/",
+        "http://192.168.1.1/",
+        "http://100.64.0.1/",
+        "http://0.0.0.0/",
+        "http://[::1]/",
+        "http://[fc00::1]/",
+        "http://[fe80::1]/",
+        "http://[::ffff:127.0.0.1]/",
+    ],
+)
+def test_rejects_non_public_ip_targets(value: str) -> None:
+    with pytest.raises(TargetValidationError):
+        normalize_target(value)
+
+
+def test_accepts_public_ip_target() -> None:
+    assert normalize_target("https://8.8.8.8/").hostname == "8.8.8.8"

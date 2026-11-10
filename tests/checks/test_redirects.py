@@ -180,3 +180,54 @@ def test_passed_result_does_not_create_finding() -> None:
     result = run_check(httpx.MockTransport(handler))
 
     assert redirect_result_to_finding(result) is None
+
+
+def test_redirect_to_other_hostname_is_not_requested() -> None:
+    requested = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "https://other.example/"})
+
+    result = run_check(httpx.MockTransport(handler))
+
+    assert result.passed is False
+    assert result.error is not None and "scope" in result.error.lower()
+    assert requested == ["http://example.com/"]
+
+
+def test_redirect_to_private_ip_is_not_requested() -> None:
+    requested = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "http://127.0.0.1/admin"})
+
+    result = run_check(httpx.MockTransport(handler))
+
+    assert result.passed is False
+    assert requested == ["http://example.com/"]
+
+
+def test_redirect_with_credentials_is_not_requested() -> None:
+    requested = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(
+            302, headers={"Location": "https://user:pass@example.com/"}
+        )
+
+    result = run_check(httpx.MockTransport(handler))
+
+    assert result.passed is False
+    assert requested == ["http://example.com/"]
+
+
+def test_malformed_redirect_is_controlled() -> None:
+    result = run_check(
+        httpx.MockTransport(
+            lambda request: httpx.Response(302, headers={"Location": "https://[bad"})
+        )
+    )
+    assert result.status is RedirectStatus.CONNECTION_ERROR

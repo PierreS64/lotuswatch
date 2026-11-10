@@ -12,7 +12,10 @@ security configuration and presents the results in a clear, structured form.
 ## Current Features
 
 - Validate and normalize domains and HTTP/HTTPS URLs.
-- Reject unsupported schemes and URLs containing embedded credentials.
+- Reject unsupported schemes, embedded credentials, and non-public IP targets.
+- Validate every DNS answer before HTTP/TLS connections and pin HTTP requests to
+  a checked public IP while retaining the original Host and TLS identity.
+- Follow redirects only within the original target hostname.
 - Check whether an HTTP endpoint redirects safely to HTTPS.
 - Limit redirect chains and detect redirect loops.
 - Inspect TLS certificate identity, validity, issuer, and expiration.
@@ -247,6 +250,31 @@ Safe synthetic inputs and expected output are available in
 [`examples/current-report.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/current-report.json), and
 [`examples/comparison-report.json`](https://github.com/PierreS64/lotuswatch/blob/main/examples/comparison-report.json).
 
+Generate a Markdown triage note from those same local files, without scanning
+any website:
+
+```bash
+lotuswatch compare examples/baseline-report.json examples/current-report.json --format markdown --output triage.md
+```
+
+The synthetic `demo.example` reports produce one `changed` medium severity CSP
+finding, one `added` informational CAA finding, one `resolved` informational
+DMARC finding, and one `unchanged` finding. Review the medium finding first,
+then the informational change. The generated [example Markdown report](https://github.com/PierreS64/lotuswatch/blob/main/examples/triage-report.md)
+shows the output; its comparison timestamp will differ when you rerun the
+command. `added` and `changed` need review, `resolved` needs verification, and
+`unchanged` means only that the serialized observation did not change. These
+are security configuration observations, not proof of exploitation or
+compromise. See [the triage walkthrough](https://github.com/PierreS64/lotuswatch/blob/main/docs/triage.md).
+
+For live scans, LotusWatch allows only public IP destinations and stays on the
+original hostname across redirects. The connection uses the validated IP so
+a later DNS change cannot silently redirect that HTTP/TLS connection to a
+private address. Public-address classification depends on Python's `ipaddress`
+database, and this application-level policy cannot control local routing,
+transparent proxies, or a compromised operating system. Run scans only for
+targets you are authorized to assess.
+
 ### Store local monitoring history
 
 LotusWatch can keep validated scan reports in a local SQLite database. The
@@ -473,9 +501,10 @@ Security-header finding categories mean:
 - MIME-sniffing findings indicate that `nosniff` protection was not observed.
 - Referrer and Permissions Policy findings indicate that the browser behavior
   is not explicitly constrained by those selected headers.
-- Framing findings indicate that neither CSP `frame-ancestors` nor
-  `X-Frame-Options` was observed; this is not proof of a working clickjacking
-  attack.
+- Framing findings indicate that no effective CSP `frame-ancestors` or
+  `X-Frame-Options` value was observed; this is not proof of a working
+  clickjacking attack. LotusWatch checks obvious malformed values but does not
+  parse or evaluate a complete CSP policy.
 
 ## Interpreting DNS Results
 

@@ -203,6 +203,19 @@ def test_execute_scan_runs_in_order_and_builds_valid_report() -> None:
     assert ScanReport.model_validate(result.report.model_dump()) == result.report
 
 
+def test_scanner_does_not_pass_out_of_scope_redirect_to_header_check() -> None:
+    runner = successful_runner()
+    runner.redirect_result.final_url = "https://other.example/"
+
+    execute_scan(
+        normalize_target("example.com"),
+        lotuswatch_version="0.1.0b1",
+        runner=runner,
+    )
+
+    assert runner.header_endpoints == [None]
+
+
 def test_execute_scan_continues_after_controlled_errors() -> None:
     runner = StubScanCheckRunner(
         redirect_result=RedirectCheckResult(
