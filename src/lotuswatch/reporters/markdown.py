@@ -27,8 +27,7 @@ def _markdown_text(value: str) -> str:
     one_line = "".join(char if char.isprintable() else "?" for char in one_line)
     escaped_html = escape(one_line, quote=False)
     return "".join(
-        f"\\{char}" if char in _MARKDOWN_SPECIALS else char
-        for char in escaped_html
+        f"\\{char}" if char in _MARKDOWN_SPECIALS else char for char in escaped_html
     )
 
 
@@ -47,10 +46,12 @@ def render_markdown_triage_report(report: ComparisonReport) -> str:
         if item.status in {ComparisonStatus.ADDED, ComparisonStatus.CHANGED}
         and item.current_finding is not None
     ]
-    review.sort(key=lambda pair: (
-        -_SEVERITY_RANK[pair[1].severity],
-        pair[1].id,
-    ))
+    review.sort(
+        key=lambda pair: (
+            -_SEVERITY_RANK[pair[1].severity],
+            pair[1].id,
+        )
+    )
     resolved = [
         item.baseline_finding
         for item in report.findings
@@ -86,10 +87,12 @@ def render_markdown_triage_report(report: ComparisonReport) -> str:
     if not review:
         lines.extend(["No added or changed findings.", ""])
     else:
-        lines.extend([
-            "| Severity | Status | Finding ID | Title |",
-            "| --- | --- | --- | --- |",
-        ])
+        lines.extend(
+            [
+                "| Severity | Status | Finding ID | Title |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
         for change, finding in review:
             lines.append(
                 f"| {finding.severity.value} | {change.status.value} | "
@@ -98,31 +101,36 @@ def render_markdown_triage_report(report: ComparisonReport) -> str:
         lines.append("")
 
         for change, finding in review:
-            lines.extend([
-                f"### {finding.id}: {_markdown_text(finding.title)}",
-                "",
-                f"- **Change:** {change.status.value}",
-                f"- **Current severity:** {finding.severity.value}",
-            ])
+            lines.extend(
+                [
+                    f"### {finding.id}: {_markdown_text(finding.title)}",
+                    "",
+                    f"- **Change:** {change.status.value}",
+                    f"- **Current severity:** {finding.severity.value}",
+                ]
+            )
             if (
                 change.status is ComparisonStatus.CHANGED
                 and change.baseline_finding is not None
             ):
                 lines.append(
-                    "- **Baseline severity:** "
-                    f"{change.baseline_finding.severity.value}"
+                    f"- **Baseline severity:** {change.baseline_finding.severity.value}"
                 )
-            lines.extend([
-                f"- **Description:** {_markdown_text(finding.description)}",
-                f"- **Suggested remediation:** "
-                f"{_markdown_text(finding.recommendation)}",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"- **Description:** {_markdown_text(finding.description)}",
+                    f"- **Suggested remediation:** "
+                    f"{_markdown_text(finding.recommendation)}",
+                    "",
+                ]
+            )
 
-    lines.extend([
-        f"## Resolved findings ({len(resolved)})",
-        "",
-    ])
+    lines.extend(
+        [
+            f"## Resolved findings ({len(resolved)})",
+            "",
+        ]
+    )
     if not resolved:
         lines.extend(["None.", ""])
     else:
@@ -133,18 +141,20 @@ def render_markdown_triage_report(report: ComparisonReport) -> str:
             )
         lines.append("")
 
-    lines.extend([
-        "## Analyst follow-up",
-        "",
-        "- [ ] Verify changes against the expected website configuration.",
-        "- [ ] Review the original JSON scan reports for supporting evidence.",
-        "- [ ] Confirm priority with the system owner and track remediation.",
-        "- [ ] Re-scan an authorized target to validate the fix.",
-        "",
-        "LotusWatch findings indicate configuration observations, not proof "
-        "of exploitation or compromise.",
-        "",
-    ])
+    lines.extend(
+        [
+            "## Analyst follow-up",
+            "",
+            "- [ ] Verify changes against the expected website configuration.",
+            "- [ ] Review the original JSON scan reports for supporting evidence.",
+            "- [ ] Confirm priority with the system owner and track remediation.",
+            "- [ ] Re-scan an authorized target to validate the fix.",
+            "",
+            "LotusWatch findings indicate configuration observations, not proof "
+            "of exploitation or compromise.",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
