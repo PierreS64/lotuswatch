@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from lotuswatch.cli import app
@@ -171,7 +172,7 @@ def test_compare_markdown_requires_output() -> None:
         app, ["compare", "old.json", "new.json", "--format", "markdown"]
     )
     assert result.exit_code == 2
-    assert "--output is required" in result.output
+    assert "--output is required" in Text.from_ansi(result.output).plain
 
 
 def test_compare_markdown_respects_policy(tmp_path: Path) -> None:
