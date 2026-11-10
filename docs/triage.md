@@ -3,6 +3,8 @@
 LotusWatch can turn a saved comparison of two website security scans into a
 human-readable Markdown triage note. This is useful when reviewing changes with
 a teammate or describing a defensive monitoring workflow in a portfolio.
+For the system architecture and design limits, see the
+[portfolio case study](portfolio.md).
 
 The command operates on **existing JSON reports** and does not perform a new
 network request:
