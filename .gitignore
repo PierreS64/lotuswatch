@@ -30,7 +30,7 @@ Thumbs.db
 # LotusWatch reports
 reports/
 report.json
-triage.md
+/triage.md
 *.report.json
 
 # LotusWatch monitoring databases
