@@ -116,9 +116,7 @@ def test_markdown_writer_does_not_overwrite(tmp_path: Path) -> None:
 
 def test_markdown_writer_rejects_nonexistent_directory(tmp_path: Path) -> None:
     with pytest.raises(ReportWriteError):
-        write_markdown_triage_report(
-            comparison(), tmp_path / "missing" / "triage.md"
-        )
+        write_markdown_triage_report(comparison(), tmp_path / "missing" / "triage.md")
 
 
 def test_compare_markdown_cli(tmp_path: Path) -> None:
@@ -154,15 +152,18 @@ def test_compare_markdown_cli(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
-            "compare", str(before), str(after), "--format", "markdown",
-            "-o", str(output),
+            "compare",
+            str(before),
+            str(after),
+            "--format",
+            "markdown",
+            "-o",
+            str(output),
         ],
     )
     assert result.exit_code == 0, result.output
     assert "Comparison report written" in result.output
-    assert "## Findings requiring review (2)" in output.read_text(
-        encoding="utf-8"
-    )
+    assert "## Findings requiring review (2)" in output.read_text(encoding="utf-8")
 
 
 def test_compare_markdown_requires_output() -> None:
@@ -185,8 +186,15 @@ def test_compare_markdown_respects_policy(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
-            "compare", str(baseline), str(current), "--format", "markdown",
-            "--output", str(destination), "--fail-on", "high",
+            "compare",
+            str(baseline),
+            str(current),
+            "--format",
+            "markdown",
+            "--output",
+            str(destination),
+            "--fail-on",
+            "high",
         ],
     )
     assert result.exit_code == 1, result.output
