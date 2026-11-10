@@ -307,7 +307,7 @@ def test_truncated_txt_answer_does_not_produce_missing_finding() -> None:
 
 @pytest.mark.parametrize(
     "target",
-    ["192.0.2.10", "https://[2001:db8::10]", "localhost"],
+    ["8.8.8.8", "https://[2606:4700:4700::1111]", "localhost"],
 )
 def test_unusable_email_dns_name_is_not_applicable(target: str) -> None:
     resolver = FakeResolver({})

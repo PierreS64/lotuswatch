@@ -100,9 +100,13 @@ def _normalize_hostname(hostname: str) -> str:
         raise TargetValidationError("Target must contain a hostname.")
 
     try:
-        return str(ip_address(hostname))
+        address = ip_address(hostname)
     except ValueError:
         pass
+    else:
+        if not address.is_global:
+            raise TargetValidationError("Target IP address must be public.")
+        return str(address)
 
     try:
         ascii_hostname = hostname.encode("idna").decode("ascii")

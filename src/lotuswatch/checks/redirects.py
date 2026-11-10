@@ -4,8 +4,10 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from pydantic import BaseModel, Field
 
+from lotuswatch.exceptions import TargetValidationError
 from lotuswatch.models import Finding, Severity
-from lotuswatch.target import NormalizedTarget
+from lotuswatch.network import PublicAddressError, PublicHTTPTransport
+from lotuswatch.target import NormalizedTarget, normalize_target
 
 DEFAULT_MAX_REDIRECTS = 5
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
@@ -69,10 +71,11 @@ def check_http_to_https_redirect(
 
     try:
         with httpx.Client(
-            transport=transport,
+            transport=transport if transport is not None else PublicHTTPTransport(),
             timeout=timeout,
             follow_redirects=False,
             headers=REQUEST_HEADERS,
+            trust_env=False,
         ) as client:
             while True:
                 if current_url in visited:
@@ -146,7 +149,20 @@ def check_http_to_https_redirect(
                         ),
                     )
 
-                next_url = str(httpx.URL(current_url).join(location))
+                try:
+                    next_url = str(httpx.URL(current_url).join(location))
+                except (httpx.InvalidURL, ValueError) as exc:
+                    return _make_result(
+                        passed=False,
+                        status=RedirectStatus.CONNECTION_ERROR,
+                        initial_url=initial_url,
+                        final_url=current_url,
+                        redirect_count=redirect_count,
+                        initial_status_code=initial_status_code,
+                        final_status_code=status_code,
+                        hops=hops,
+                        error=f"Invalid redirect destination: {exc}",
+                    )
                 next_scheme = urlsplit(next_url).scheme.lower()
 
                 if next_scheme not in {"http", "https"}:
@@ -165,9 +181,48 @@ def check_http_to_https_redirect(
                         ),
                     )
 
-                redirect_count += 1
-                current_url = next_url
+                try:
+                    next_target = normalize_target(next_url)
+                except TargetValidationError as exc:
+                    return _make_result(
+                        passed=False,
+                        status=RedirectStatus.CONNECTION_ERROR,
+                        initial_url=initial_url,
+                        final_url=next_url,
+                        redirect_count=redirect_count,
+                        initial_status_code=initial_status_code,
+                        final_status_code=status_code,
+                        hops=hops,
+                        error=f"Unsafe redirect destination: {exc}",
+                    )
+                if next_target.hostname != target.hostname:
+                    return _make_result(
+                        passed=False,
+                        status=RedirectStatus.CONNECTION_ERROR,
+                        initial_url=initial_url,
+                        final_url=next_url,
+                        redirect_count=redirect_count,
+                        initial_status_code=initial_status_code,
+                        final_status_code=status_code,
+                        hops=hops,
+                        error="Redirect destination is outside the target hostname scope.",
+                    )
 
+                redirect_count += 1
+                current_url = next_target.url
+
+    except PublicAddressError as exc:
+        return _make_result(
+            passed=False,
+            status=RedirectStatus.CONNECTION_ERROR,
+            initial_url=initial_url,
+            final_url=current_url,
+            redirect_count=redirect_count,
+            initial_status_code=initial_status_code,
+            final_status_code=None,
+            hops=hops,
+            error=str(exc),
+        )
     except httpx.TimeoutException:
         return _make_result(
             passed=False,

@@ -1,6 +1,7 @@
 import ssl
 
 import httpx
+import pytest
 
 from lotuswatch.checks import (
     SecurityHeaderStatus,
@@ -121,11 +122,39 @@ def test_explicit_https_endpoint_is_used() -> None:
 
     result = run_check(
         handler,
-        endpoint_url="https://cdn.example.com/final",
+        endpoint_url="https://example.com/final",
     )
 
-    assert requested_urls == ["https://cdn.example.com/final"]
-    assert result.final_url == "https://cdn.example.com/final"
+    assert requested_urls == ["https://example.com/final"]
+    assert result.final_url == "https://example.com/final"
+
+
+def test_other_hostname_endpoint_is_rejected_before_request() -> None:
+    result = run_check(
+        lambda request: pytest.fail("Out-of-scope endpoint was requested"),
+        endpoint_url="https://cdn.example.com/final",
+    )
+    assert result.status is SecurityHeaderStatus.INVALID_TARGET
+
+
+def test_https_redirect_to_other_hostname_is_not_requested() -> None:
+    requested = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "https://other.example/"})
+
+    result = run_check(handler)
+
+    assert result.status is SecurityHeaderStatus.INVALID_TARGET
+    assert requested == ["https://example.com/"]
+
+
+def test_malformed_redirect_is_controlled() -> None:
+    result = run_check(
+        lambda request: httpx.Response(302, headers={"Location": "https://[bad"})
+    )
+    assert result.status is SecurityHeaderStatus.INVALID_TARGET
 
 
 def test_relative_https_redirect_is_followed() -> None:

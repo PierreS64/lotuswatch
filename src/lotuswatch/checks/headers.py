@@ -1,3 +1,4 @@
+import re
 import ssl
 from enum import StrEnum
 from urllib.parse import urlsplit, urlunsplit
@@ -5,8 +6,10 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from pydantic import BaseModel, Field, JsonValue
 
+from lotuswatch.exceptions import TargetValidationError
 from lotuswatch.models import Finding, Severity
-from lotuswatch.target import NormalizedTarget
+from lotuswatch.network import PublicAddressError, PublicHTTPTransport
+from lotuswatch.target import NormalizedTarget, normalize_target
 
 DEFAULT_HEADER_TIMEOUT = 5.0
 DEFAULT_MAX_REDIRECTS = 5
@@ -121,10 +124,11 @@ def check_security_headers(
 
     try:
         with httpx.Client(
-            transport=transport,
+            transport=transport if transport is not None else PublicHTTPTransport(),
             timeout=client_timeout,
             follow_redirects=False,
             headers=REQUEST_HEADERS,
+            trust_env=False,
         ) as client:
             while True:
                 if current_url in visited:
@@ -173,7 +177,16 @@ def check_security_headers(
                         ),
                     )
 
-                next_url = str(httpx.URL(current_url).join(location))
+                try:
+                    next_url = str(httpx.URL(current_url).join(location))
+                except (httpx.InvalidURL, ValueError) as exc:
+                    return _error_result(
+                        status=SecurityHeaderStatus.INVALID_TARGET,
+                        requested_url=requested_url,
+                        final_url=current_url,
+                        redirect_count=redirect_count,
+                        error=f"Invalid redirect destination: {exc}",
+                    )
                 next_scheme = urlsplit(next_url).scheme.casefold()
 
                 if next_scheme == "http":
@@ -199,6 +212,7 @@ def check_security_headers(
 
                 try:
                     next_url = _validate_endpoint_url(next_url)
+                    _require_same_hostname(target, next_url)
                 except _EndpointSelectionError as exc:
                     return _error_result(
                         status=SecurityHeaderStatus.INVALID_TARGET,
@@ -210,6 +224,14 @@ def check_security_headers(
 
                 redirect_count += 1
                 current_url = next_url
+    except PublicAddressError as exc:
+        return _error_result(
+            status=SecurityHeaderStatus.INVALID_TARGET,
+            requested_url=requested_url,
+            final_url=current_url,
+            redirect_count=redirect_count,
+            error=str(exc),
+        )
     except httpx.TimeoutException:
         return _error_result(
             status=SecurityHeaderStatus.TIMEOUT,
@@ -412,15 +434,17 @@ def security_header_result_to_findings(
     x_frame_options = observations.get("x-frame-options")
     x_frame_options_value = _observed_value(x_frame_options)
 
-    if not _csp_has_frame_ancestors(csp_value) and x_frame_options_value is None:
+    if not _csp_has_frame_ancestors(csp_value) and not _valid_x_frame_options(
+        x_frame_options_value
+    ):
         findings.append(
             Finding(
                 id="LW-HEADER-007",
                 severity=Severity.MEDIUM,
                 title="Clickjacking protection is missing",
                 description=(
-                    "Neither a CSP frame-ancestors directive nor an "
-                    "X-Frame-Options header was observed. This weakens browser "
+                    "No effective CSP frame-ancestors or X-Frame-Options "
+                    "policy was observed. This weakens browser "
                     "framing defenses but does not confirm a clickjacking exploit."
                 ),
                 evidence=_finding_evidence(
@@ -483,9 +507,38 @@ def _csp_has_frame_ancestors(value: str | None) -> bool:
         parts = directive.strip().split(maxsplit=1)
 
         if parts and parts[0].casefold() == "frame-ancestors":
-            return True
+            if len(parts) != 2:
+                return False
+            sources = parts[1].split()
+            if not sources or "'none'" in sources:
+                return sources == ["'none'"]
+            return all(_valid_frame_ancestor_source(source) for source in sources)
 
     return False
+
+
+def _valid_frame_ancestor_source(source: str) -> bool:
+    if source == "'self'":
+        return True
+    if source in {"*", "http:", "https:"}:
+        return False
+    if not re.fullmatch(r"https?://[^\s/]+", source, flags=re.IGNORECASE):
+        return False
+    try:
+        parsed = urlsplit(source)
+        return (
+            parsed.hostname is not None
+            and parsed.hostname != "*"
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port != 0
+        )
+    except ValueError:
+        return False
+
+
+def _valid_x_frame_options(value: str | None) -> bool:
+    return value is not None and value.strip().casefold() in {"deny", "sameorigin"}
 
 
 def _finding_evidence(
@@ -510,11 +563,21 @@ def _select_https_endpoint(
 ) -> str:
     if endpoint_url is not None:
         endpoint = _validate_endpoint_url(endpoint_url)
+        _require_same_hostname(target, endpoint)
 
         if urlsplit(endpoint).scheme.casefold() == "https":
             return endpoint
 
-    return _validate_endpoint_url(_replace_scheme(target.url, "https"))
+    endpoint = _validate_endpoint_url(_replace_scheme(target.url, "https"))
+    _require_same_hostname(target, endpoint)
+    return endpoint
+
+
+def _require_same_hostname(target: NormalizedTarget, endpoint_url: str) -> None:
+    if urlsplit(endpoint_url).hostname != target.hostname:
+        raise _EndpointSelectionError(
+            "Security-header endpoint is outside the target hostname scope."
+        )
 
 
 def _validate_endpoint_url(value: str) -> str:
@@ -540,15 +603,10 @@ def _validate_endpoint_url(value: str) -> str:
             "Security-header endpoint cannot contain credentials."
         )
 
-    return urlunsplit(
-        (
-            parsed.scheme.casefold(),
-            parsed.netloc,
-            parsed.path or "/",
-            parsed.query,
-            "",
-        )
-    )
+    try:
+        return normalize_target(value).url
+    except TargetValidationError as exc:
+        raise _EndpointSelectionError(str(exc)) from exc
 
 
 def _collect_security_headers(

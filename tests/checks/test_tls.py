@@ -6,7 +6,16 @@ from unittest.mock import MagicMock
 import pytest
 
 from lotuswatch.checks import TLSStatus, check_tls_certificate
+from lotuswatch.network import PublicAddressError
 from lotuswatch.target import normalize_target
+
+
+@pytest.fixture(autouse=True)
+def public_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "lotuswatch.checks.tls.resolve_public_address",
+        lambda hostname, port, *, timeout: "8.8.8.8",
+    )
 
 
 def valid_certificate() -> dict[str, object]:
@@ -96,7 +105,7 @@ def test_verified_certificate_produces_structured_result(
     assert result.not_before == datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
     assert result.not_after == datetime(2026, 9, 17, 10, 0, tzinfo=UTC)
     assert result.days_until_expiry == 30
-    assert connection_arguments == [("example.com", 443), 4.0]
+    assert connection_arguments == [("8.8.8.8", 443), 4.0]
     assert context.verify_mode == ssl.CERT_REQUIRED
     assert context.check_hostname is True
     context.wrap_socket.assert_called_once()
@@ -115,7 +124,24 @@ def test_explicit_target_port_is_used(
     )
 
     assert result.port == 8443
-    assert connection_arguments[0] == ("example.com", 8443)
+    assert connection_arguments[0] == ("8.8.8.8", 8443)
+
+
+def test_non_public_resolution_does_not_open_tls_socket(monkeypatch) -> None:
+    def blocked(hostname: str, port: int, *, timeout: float) -> str:
+        raise PublicAddressError("Connection destination resolves to a non-public IP.")
+
+    monkeypatch.setattr("lotuswatch.checks.tls.resolve_public_address", blocked)
+    monkeypatch.setattr(
+        socket,
+        "create_connection",
+        lambda address, timeout: pytest.fail("Blocked address was connected"),
+    )
+
+    result = check_tls_certificate(normalize_target("example.com"))
+
+    assert result.status is TLSStatus.CONNECTION_ERROR
+    assert result.error is not None and "non-public" in result.error
 
 
 def test_certificate_verification_error_is_controlled(

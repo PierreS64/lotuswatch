@@ -188,6 +188,26 @@ def test_csp_frame_ancestors_suppresses_clickjacking_finding(csp: str) -> None:
     assert "LW-HEADER-007" not in ids
 
 
+@pytest.mark.parametrize(
+    "csp",
+    [
+        "frame-ancestors",
+        "default-src 'self'; frame-ancestors   ; script-src 'self'",
+        "frame-ancestors 'none' https://parent.example",
+        "frame-ancestors 'invalid'",
+        "frame-ancestors https://",
+        "frame-ancestors https://*",
+    ],
+)
+def test_empty_or_malformed_frame_ancestors_does_not_suppress_finding(
+    csp: str,
+) -> None:
+    values = secure_values()
+    values["Content-Security-Policy"] = csp
+
+    assert finding_by_id(completed_result(values), "LW-HEADER-007")
+
+
 def test_x_frame_options_suppresses_clickjacking_without_csp() -> None:
     values = secure_values()
     values["Content-Security-Policy"] = "default-src 'self'"
@@ -199,6 +219,16 @@ def test_x_frame_options_suppresses_clickjacking_without_csp() -> None:
     }
 
     assert "LW-HEADER-007" not in ids
+
+
+@pytest.mark.parametrize("x_frame_options", ["", "ALLOWALL", "DENY, SAMEORIGIN"])
+def test_invalid_x_frame_options_does_not_suppress_clickjacking_finding(
+    x_frame_options: str,
+) -> None:
+    values = secure_values()
+    values["Content-Security-Policy"] = "default-src 'self'"
+    values["X-Frame-Options"] = x_frame_options
+    assert finding_by_id(completed_result(values), "LW-HEADER-007")
 
 
 def test_missing_both_clickjacking_controls_produces_medium_finding() -> None:
