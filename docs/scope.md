@@ -7,6 +7,8 @@ turns technical observations into understandable, structured results.
 
 Version 0.1 focuses on low-impact, defensive checks. It is not a penetration
 testing framework and does not attempt to exploit identified conditions.
+It is not a SIEM or IDS/IPS. See the [portfolio case study](portfolio.md) for
+the architecture and an offline demonstration.
 
 ## Implemented
 
@@ -15,6 +17,10 @@ The current codebase supports:
 - Domain and HTTP/HTTPS URL validation
 - HTTPS as the default scheme when none is provided
 - Hostname, port, and embedded-credential validation
+- Rejection of non-global literal IP targets and mixed public/non-public A/AAAA
+  answers before website connections
+- HTTP connection pinning to a checked IP while retaining Host and TLS identity
+- Same-hostname redirect and HTTPS header endpoint scope
 - URL normalization and fragment removal
 - HTTP-to-HTTPS redirect detection
 - Relative and multi-step redirect handling
@@ -27,6 +33,8 @@ The current codebase supports:
 - Certificate expiration and verification findings
 - Inspection of six selected HTTP security headers
 - Contextual HSTS, CSP, MIME-sniffing, referrer, permissions, and framing findings
+- Rejection of empty or clearly malformed CSP `frame-ancestors` and
+  X-Frame-Options framing values as effective protection
 - Bounded CAA and TXT queries through the system-configured recursive resolver
 - Effective CAA lookup from the target hostname toward the DNS root
 - Conservative CAA policy and issuer-critical property findings
@@ -46,6 +54,7 @@ The current codebase supports:
 - Same-target baseline and current report comparison
 - Added, resolved, changed, and unchanged finding classification
 - Console and deterministic JSON comparison output
+- Markdown triage output from existing JSON reports, sorted by current severity
 - Opt-in scan and comparison severity exit policies for CI/CD
 - Backend-neutral monitoring storage contract with a versioned local SQLite
   implementation
@@ -114,6 +123,10 @@ For one scan, LotusWatch:
 - Uses an explicit timeout
 - Follows no more than five redirects
 - Accepts only HTTP and HTTPS redirect destinations
+- Stops at redirect destinations outside the original target hostname
+- Rejects non-global IP destinations; validates all returned A/AAAA addresses
+  and pins each website connection to one checked IP
+- Does not inherit environment-configured HTTP proxies for website checks
 - Opens a verified TLS connection using the requested hostname as SNI
 - Inspects the peer certificate returned by that connection
 - Sends a streamed `GET` request to the selected HTTPS endpoint for headers
@@ -122,7 +135,10 @@ For one scan, LotusWatch:
 - Clears cookies between requests
 - Limits captured header values to 2048 characters
 - Uses the system-configured recursive DNS resolver
+- Bounds A/AAAA lookups for website connections; DNS lookup time and socket
+  connect time can add together
 - Applies a two-second per-attempt DNS timeout and five-second total lifetime
+  to the CAA/TXT checks
 - Queries CAA from the target hostname toward parent names, with at most 32
   query names and no DNS root query
 - Queries TXT at the target DNS name for SPF and at `_dmarc.<domain>` for DMARC
@@ -138,6 +154,14 @@ finding.
 
 Automated tests use mocked HTTP and DNS responses and do not access public
 websites or public DNS resolvers.
+
+The application-level public-address rule depends on Python's `ipaddress`
+classification and the configured resolver. It prevents a DNS name from being
+re-resolved to a private address between validation and the HTTP/TLS connection
+made by these checks. It cannot control OS routing, transparent proxies, or a
+compromised host. Stronger deployments can enforce an outbound firewall policy.
+Cross-hostname redirects are deliberately left incomplete until the operator
+can explicitly authorize an expanded scope.
 
 The `compare` command does not perform a scan or make a network request. It
 reads two explicitly selected local UTF-8 JSON files, treats them as untrusted

@@ -5,6 +5,10 @@
 LotusWatch is an open-source command-line tool that inspects public website
 security configuration and presents the results in a clear, structured form.
 
+The [portfolio case study](https://github.com/PierreS64/lotuswatch/blob/main/docs/portfolio.md)
+explains the architecture, network safety decisions, reproducible offline demo,
+and limitations for reviewers.
+
 > [!WARNING]
 > LotusWatch is experimental software under active development. It is not a
 > replacement for a complete security assessment.
@@ -13,8 +17,8 @@ security configuration and presents the results in a clear, structured form.
 
 - Validate and normalize domains and HTTP/HTTPS URLs.
 - Reject unsupported schemes, embedded credentials, and non-public IP targets.
-- Validate every DNS answer before HTTP/TLS connections and pin HTTP requests to
-  a checked public IP while retaining the original Host and TLS identity.
+- Validate every A/AAAA answer used for website connections and pin HTTP
+  requests to a checked public IP while retaining Host and TLS identity.
 - Follow redirects only within the original target hostname.
 - Check whether an HTTP endpoint redirects safely to HTTPS.
 - Limit redirect chains and detect redirect loops.
@@ -32,6 +36,7 @@ security configuration and presents the results in a clear, structured form.
 - Protect existing report files from accidental overwrite.
 - Load existing reports as bounded, untrusted local input.
 - Compare baseline and current reports without making network requests.
+- Render a Markdown triage note from two existing JSON reports.
 - Classify findings as added, resolved, changed, or unchanged.
 - Generate stable, versioned finding fingerprints for comparison identity.
 - Provide opt-in severity thresholds for CI/CD exit policies.
@@ -73,6 +78,11 @@ Beta 1 is a pre-release, pip requires either the exact version or the explicit
 `--pre` option when resolving the newest available LotusWatch version. See the
 [`beta compatibility policy`](https://github.com/PierreS64/lotuswatch/blob/main/docs/compatibility.md)
 and [`Trusted Publishing runbook`](https://github.com/PierreS64/lotuswatch/blob/main/docs/publishing.md).
+
+The published `0.1.0b1` artifact predates the Markdown triage and network
+hardening merged in PRs #84 and #85. Install a checkout of current `main`, as
+shown below, to reproduce the portfolio demo. The package version has not
+been changed for these post-beta commits.
 
 ## Installation
 
@@ -266,6 +276,22 @@ command. `added` and `changed` need review, `resolved` needs verification, and
 `unchanged` means only that the serialized observation did not change. These
 are security configuration observations, not proof of exploitation or
 compromise. See [the triage walkthrough](https://github.com/PierreS64/lotuswatch/blob/main/docs/triage.md).
+
+For a Windows PowerShell portfolio demo from a fresh checkout:
+
+```powershell
+py -3.14 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\lotuswatch.exe compare examples/baseline-report.json examples/current-report.json --format markdown --output triage.md
+Get-Content .\triage.md
+```
+
+Use an installed Python version from 3.12 onward if 3.14 is unavailable. The
+command prints `Comparison report written: triage.md` and a reminder to review
+the file before sharing. It does not contact `demo.example`. The example's
+`Compared at` timestamp reflects the time of each run, while its baseline and
+current scan timestamps come from the fixed JSON inputs. LotusWatch refuses to
+overwrite an existing `triage.md`; review, rename, or remove it before a rerun.
 
 For live scans, LotusWatch allows only public IP destinations and stays on the
 original hostname across redirects. The connection uses the validated IP so
@@ -776,6 +802,9 @@ storing the scan.
 Do not use LotusWatch to bypass authentication, evade protective controls,
 perform denial-of-service testing, test credentials, or exploit a system
 without explicit authorization.
+
+LotusWatch is a configuration observer, not a SIEM, IDS/IPS, or complete
+penetration test. A finding does not establish that a system was compromised.
 
 Users are responsible for complying with applicable laws, contracts, terms of
 service, and acceptable-use policies. See [`docs/scope.md`](https://github.com/PierreS64/lotuswatch/blob/main/docs/scope.md) for
