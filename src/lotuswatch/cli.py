@@ -227,7 +227,7 @@ def compare(
 
     if output_format is not CompareOutputFormat.CONSOLE and output is None:
         raise typer.BadParameter(
-            "--output is required when --format json or markdown is used.",
+            "--output is required for json/markdown.",
             param_hint="--output",
         )
 
