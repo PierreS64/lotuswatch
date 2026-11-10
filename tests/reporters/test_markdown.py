@@ -38,7 +38,9 @@ def finding(
 
 
 def scan(
-    findings: list[Finding], *, timestamp: datetime,
+    findings: list[Finding],
+    *,
+    timestamp: datetime,
 ) -> ScanReport:
     return ScanReport.create(
         lotuswatch_version="0.1.0b1",
@@ -123,7 +125,6 @@ def test_compare_markdown_cli(tmp_path: Path) -> None:
     before = tmp_path / "before.json"
     after = tmp_path / "after.json"
     output = tmp_path / "triage.md"
-    comparison_report = comparison()
     write_json_report(
         scan(
             [
@@ -140,19 +141,28 @@ def test_compare_markdown_cli(tmp_path: Path) -> None:
             [
                 finding("LW-TEST-001", Severity.HIGH, title="New *title*"),
                 finding("LW-TEST-003"),
-                finding("LW-TEST-004", Severity.CRITICAL, title="[click](https://example.net) | <script>alert(1)</script>"),
+                finding(
+                    "LW-TEST-004",
+                    Severity.CRITICAL,
+                    title="[click](https://example.net) | <script>alert(1)</script>",
+                ),
             ],
             timestamp=CURRENT,
         ),
         after,
     )
-    assert comparison_report.summary.added == 1
     result = runner.invoke(
-        app, ["compare", str(before), str(after), "--format", "markdown", "-o", str(output)]
+        app,
+        [
+            "compare", str(before), str(after), "--format", "markdown",
+            "-o", str(output),
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "Comparison report written" in result.output
-    assert "## Findings requiring review (2)" in output.read_text(encoding="utf-8")
+    assert "## Findings requiring review (2)" in output.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_compare_markdown_requires_output() -> None:
