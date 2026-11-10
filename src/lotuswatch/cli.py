@@ -44,16 +44,25 @@ from lotuswatch.reporters import (
     load_json_report,
     write_json_comparison_report,
     write_json_report,
+    write_markdown_triage_report,
 )
 from lotuswatch.scanner import execute_scan
 from lotuswatch.target import normalize_target
 
 
 class OutputFormat(StrEnum):
-    """Output formats supported by LotusWatch commands."""
+    """Output formats supported by the scan command."""
 
     CONSOLE = "console"
     JSON = "json"
+
+
+class CompareOutputFormat(StrEnum):
+    """Output formats supported by the comparison command."""
+
+    CONSOLE = "console"
+    JSON = "json"
+    MARKDOWN = "markdown"
 
 
 app = typer.Typer(
@@ -192,9 +201,9 @@ def compare(
         typer.Argument(help="Path to the newer current scan report."),
     ],
     output_format: Annotated[
-        OutputFormat,
-        typer.Option("--format", help="Output format."),
-    ] = OutputFormat.CONSOLE,
+        CompareOutputFormat,
+        typer.Option("--format", help="Output format (console, json, markdown)."),
+    ] = CompareOutputFormat.CONSOLE,
     output: Annotated[
         Path | None,
         typer.Option(
@@ -216,15 +225,15 @@ def compare(
 ) -> None:
     """Compare two LotusWatch scan reports without running a new scan."""
 
-    if output_format is OutputFormat.JSON and output is None:
+    if output_format is not CompareOutputFormat.CONSOLE and output is None:
         raise typer.BadParameter(
-            "--output is required when --format json is used.",
+            "--output is required when --format json or markdown is used.",
             param_hint="--output",
         )
 
-    if output_format is OutputFormat.CONSOLE and output is not None:
+    if output_format is CompareOutputFormat.CONSOLE and output is not None:
         raise typer.BadParameter(
-            "--output requires --format json.",
+            "--output requires --format json or markdown.",
             param_hint="--output",
         )
 
@@ -239,13 +248,16 @@ def compare(
             param_hint="baseline/current",
         ) from exc
 
-    if output_format is OutputFormat.CONSOLE:
+    if output_format is CompareOutputFormat.CONSOLE:
         _render_comparison(comparison)
     else:
         assert output is not None
 
         try:
-            report_path = write_json_comparison_report(comparison, output)
+            if output_format is CompareOutputFormat.JSON:
+                report_path = write_json_comparison_report(comparison, output)
+            else:
+                report_path = write_markdown_triage_report(comparison, output)
         except ReportError as exc:
             raise typer.BadParameter(
                 str(exc),
