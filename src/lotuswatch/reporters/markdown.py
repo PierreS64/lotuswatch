@@ -8,7 +8,7 @@ from html import escape
 from pathlib import Path
 
 from lotuswatch.exceptions import ReportAlreadyExistsError, ReportWriteError
-from lotuswatch.models import ComparisonReport, ComparisonStatus, Finding, Severity
+from lotuswatch.models import ComparisonReport, ComparisonStatus, Severity
 
 _SEVERITY_RANK = {
     Severity.CRITICAL: 5,
@@ -119,8 +119,10 @@ def render_markdown_triage_report(report: ComparisonReport) -> str:
             lines.extend(
                 [
                     f"- **Description:** {_markdown_text(finding.description)}",
-                    f"- **Suggested remediation:** "
-                    f"{_markdown_text(finding.recommendation)}",
+                    (
+                        f"- **Suggested remediation:** "
+                        f"{_markdown_text(finding.recommendation)}"
+                    ),
                     "",
                 ]
             )
@@ -150,8 +152,10 @@ def render_markdown_triage_report(report: ComparisonReport) -> str:
             "- [ ] Confirm priority with the system owner and track remediation.",
             "- [ ] Re-scan an authorized target to validate the fix.",
             "",
-            "LotusWatch findings indicate configuration observations, not proof "
-            "of exploitation or compromise.",
+            (
+                "LotusWatch findings indicate configuration observations, not proof "
+                "of exploitation or compromise."
+            ),
             "",
         ]
     )
